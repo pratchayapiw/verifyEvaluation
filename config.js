@@ -6,5 +6,5 @@
  */
 window.WNM_CONFIG = {
   supabaseUrl: 'https://rwvgunkkcrddijkxguej.supabase.co',
-  supabaseAnonKey: 'rwvgunkkcrddijkxguej'
+  supabaseAnonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ3dmd1bmtrY3JkZGlqa3hndWVqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTExNTg2NzksImV4cCI6MjEwNjczNDY3OX0.g3rkfVSRfiv6D3cB1mRtRF-anA_b62xpzIN6vQa9S9I'
 };
