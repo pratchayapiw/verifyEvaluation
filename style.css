@@ -537,3 +537,5 @@ select.res{min-width:184px}
 .cp-sp .sig-img{height:1cm}
 .pdf-stage .letter.copy{margin:0;min-height:29.6cm;height:29.6cm}
 @media print{.letter.copy{break-before:page;margin:0;padding:0;height:26cm;min-height:0}}
+.sign-row input.inl,.sign-row select.inl{width:auto;padding:5px 8px;font-size:14px}
+.sign-row input.inl.yr{width:92px}

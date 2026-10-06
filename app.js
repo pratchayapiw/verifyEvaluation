@@ -397,13 +397,15 @@ let S = CLOUD ? emptyState() : load();
 if (!CLOUD && (!S || !S.v)) { S = seed(); save(); }
 /* ปรับข้อมูลที่บันทึกไว้จากเวอร์ชันก่อน */
 function migrateState() {
+  (S.requests || []).forEach(r => { if (r.status === 'replied' && !Array.isArray(r.enclosures)) r.enclosures = r.form == 1 ? [{ name: 'บัญชีรายชื่อผลการตรวจสอบวุฒิการศึกษา', qty: 1, unit: 'ฉบับ' }] : []; });
+  (S.requests || []).forEach(r => { if (r.outNo && r.outYearOn === undefined && /^\d+\/\d{4}$/.test(r.outNo)) r.outYearOn = true; });
   const st = S.settings, d = defaultSettings();
   if (!st.address || st.address === 'จังหวัดนนทบุรี') st.address = d.address;
   if (!st.phone) st.phone = d.phone;
   if (!st.email || st.email === 'web@wnm.ac.th') st.email = d.email;
   if (!st.docPrefix || st.docPrefix === 'ศธ 04xxx.xx/') st.docPrefix = d.docPrefix;
   if (!st.director) st.director = d.director;
-  if (st.fax === undefined) st.fax = '';
+  st.fax = '';
   if (st.contact === undefined) st.contact = '';
   if (!st.outFrom) { st.outFrom = st.nextOut || 1; st.outTo = (st.nextOut || 1) + 79; }
   S.students.forEach((s, i) => { if (s.source === 'ตัวอย่าง' && !s.pp1Set && i % 5 !== 4) { s.pp1Set = String(12 + Math.floor(i / 4)).padStart(5, '0'); s.pp1No = String(345 + i * 7).padStart(6, '0'); } });
@@ -1204,13 +1206,14 @@ function vSettings() {
   <div class="grid g2">${f('school', 'ชื่อโรงเรียน', st.school)}<div><label for="st-address">ที่อยู่ (หัวหนังสือ แยกบรรทัดได้)</label><textarea id="st-address" rows="2" style="font-family:inherit;font-size:15px">${esc(st.address)}</textarea></div>
   ${f('docPrefix', 'รหัสหนังสือออก (นำหน้าเลขหนังสือ)', st.docPrefix, 'ศธ 04xxx.xx/')}${f('office', 'ส่วนราชการเจ้าของเรื่อง (ท้ายหนังสือ)', st.office)}
   ${f('director', 'ชื่อผู้ลงนาม', st.director, 'นาย/นาง/นางสาว ...')}${f('directorTitle', 'ตำแหน่งผู้ลงนาม', st.directorTitle)}
-  ${f('phone', 'โทรศัพท์', st.phone)}${f('fax', 'โทรสาร', st.fax || '')}${f('contact', 'ผู้ประสานงาน (ชื่อ และเบอร์ติดต่อ)', st.contact || '', 'เช่น นางสาว... งานทะเบียน โทร. 08x xxx xxxx')}${f('email', 'ไปรษณีย์อิเล็กทรอนิกส์ (E-mail)', st.email)}
+  ${f('phone', 'โทรศัพท์', st.phone)}${f('contact', 'ผู้ประสานงาน (ชื่อ และเบอร์ติดต่อ)', st.contact || '', 'เช่น นางสาว... งานทะเบียน โทร. 08x xxx xxxx')}${f('email', 'ไปรษณีย์อิเล็กทรอนิกส์ (E-mail)', st.email)}
   <label class="row" style="margin:0;gap:10px;font-weight:600;align-self:end"><span class="switch"><input type="checkbox" id="st-thaiNum" ${st.thaiNum !== false ? 'checked' : ''}><span class="slider"></span></span>ใช้เลขไทยในหนังสือราชการ</label>
   <label class="row" style="margin:0;gap:10px;font-weight:600;align-self:end"><span class="switch"><input type="checkbox" id="st-letterGpa" ${st.letterGpa !== false ? 'checked' : ''}><span class="slider"></span></span>แสดงเกรดเฉลี่ยในหนังสือตอบ (ค่าเริ่มต้น)</label>
   <div><label for="st-slaDays">กำหนดตอบหนังสือภายใน (วัน)</label><input id="st-slaDays" type="number" min="1" max="60" value="${slaDays()}"><p class="muted small" style="margin:6px 0 0">ใช้แจ้งเตือนหนังสือที่ใกล้หรือเกินกำหนด</p></div>
   <div class="span2"><label for="st-debtNote">หมายเหตุในหนังสือตอบ กรณีผู้สำเร็จการศึกษามียอดค้างชำระ</label><input id="st-debtNote" value="${esc(st.debtNote || DEBT_NOTE_DEFAULT)}"><p class="muted small" style="margin:6px 0 0">แสดงในช่องหมายเหตุโดยไม่ระบุยอดเงิน</p></div>
   <div class="span2"><label for="st-gasUrl">บริการส่งอีเมล (Google Apps Script Web App URL)</label><input id="st-gasUrl" value="${esc(st.gasUrl || '')}" placeholder="https://script.google.com/macros/s/.../exec"><p class="muted small" style="margin:6px 0 0">ตั้งค่าตามไฟล์ gas/Code.gs และ README ในชุดดาวน์โหลด ส่งอีเมลผ่านระบบได้เมื่อเปิดจากไฟล์ index.html</p></div>
   <div><label for="st-gasKey">รหัสลับของบริการ (KEY)</label><input id="st-gasKey" value="${esc(st.gasKey || '')}" autocomplete="off"></div>
+  <div class="span2"><label for="st-outNoYear">รูปแบบเลขที่หนังสือส่ง (ค่าเริ่มต้น เปลี่ยนรายฉบับได้)</label><select id="st-outNoYear"><option value="0" ${st.outNoYear ? '' : 'selected'}>ไม่ใส่ปี พ.ศ. เช่น ที่ ${esc(st.docPrefix)}121</option><option value="1" ${st.outNoYear ? 'selected' : ''}>ใส่ปี พ.ศ. เช่น ที่ ${esc(st.docPrefix)}121/${beYear()}</option></select></div>
   <div class="span2 range-box"><b>ช่วงเลขหนังสือส่งที่ได้รับจัดสรรจากงานธุรการ</b><div class="grid g3"><div><label for="st-outFrom">ตั้งแต่เลขที่</label><input id="st-outFrom" inputmode="numeric" value="${st.outFrom}"></div><div><label for="st-outTo">ถึงเลขที่</label><input id="st-outTo" inputmode="numeric" value="${st.outTo}"></div><div><label for="st-nextOut">เลขถัดไปที่จะใช้</label><input id="st-nextOut" inputmode="numeric" value="${Math.max(st.nextOut, st.outFrom)}"></div></div><p class="muted small" style="margin:0">เหลือ ${outLeft()} เลข · ปี พ.ศ. ต่อท้ายให้อัตโนมัติ เช่น ${esc(st.docPrefix)}${Math.max(st.nextOut, st.outFrom)}/${beYear()}</p></div></div>
   <div class="row end"><button class="btn btn-primary" type="submit">บันทึกการตั้งค่า</button></div></form>
   ${signSettings()}
@@ -1238,13 +1241,18 @@ function resultRows(r) {
 const resultTable = r => { const R2 = ' rowspan="2"'; return `<table class="lt-table${showGpa(r) ? ' has-gpa' : ''}${r.persons.length > 1 ? '' : ' single'}"><thead><tr>${r.persons.length > 1 ? `<th class="w-no"${R2}>ที่</th>` : ''}<th class="w-name"${R2}>ชื่อ-สกุล</th><th class="w-sid"${R2}>เลขประจำตัว</th><th class="w-lv"${R2}>ระดับชั้น</th><th class="w-date"${R2}>วันที่จบ</th>${showGpa(r) ? `<th class="w-gpa"${R2}>เกรดเฉลี่ย</th>` : ''}<th colspan="2">สำเร็จการศึกษาแห่งนี้</th><th class="w-res"${R2}>หมายเหตุ</th></tr><tr><th class="w-ok">จริง</th><th class="w-ok">ไม่จริง</th></tr></thead><tbody>${resultRows(r)}</tbody></table>`; };
 const numFix = html => S.settings.thaiNum !== false ? toThaiNum('<i hidden></i>' + html + '<i hidden></i>') : html;
 const ENCL_TITLE = 'บัญชีรายชื่อผลการตรวจสอบวุฒิการศึกษา';
-const ENCL_PRESETS = [ENCL_TITLE, 'สำเนาระเบียนแสดงผลการเรียน (ปพ.1)', 'สำเนาประกาศนียบัตร (ปพ.2)', 'สำเนาใบรับรองผลการศึกษา (ปพ.7)', 'สำเนาแบบรายงานผู้สำเร็จการศึกษา (ปพ.3)', 'สำเนาใบรายชื่อที่หน่วยงานส่งมา'];
+const ENCL_AGENCY = 'สำเนาใบรายชื่อจากสถาบัน';
+const ENCL_PRESETS = [ENCL_TITLE, ENCL_AGENCY, 'สำเนาระเบียนแสดงผลการเรียน (ปพ.1)', 'สำเนาประกาศนียบัตร (ปพ.2)', 'สำเนาใบรับรองผลการศึกษา (ปพ.7)', 'สำเนาแบบรายงานผู้สำเร็จการศึกษา (ปพ.3)', 'สำเนาใบรายชื่อที่หน่วยงานส่งมา'];
 const ENCL_UNITS = ['ฉบับ', 'ชุด', 'แผ่น', 'เล่ม'];
-/* สิ่งที่ส่งมาด้วย: ค่าเริ่มต้นแบบที่ 1 = บัญชีรายชื่อ 1 ฉบับ, แบบที่ 2 = ไม่มี */
+/* สิ่งที่ส่งมาด้วย (ค่าเริ่มต้น)
+   - หน่วยงานแนบใบรายชื่อมา (แบบที่ 1) = ส่งสำเนาใบรายชื่อจากสถาบันกลับ + ผลอยู่ในตารางในหนังสือ
+   - ไม่ได้แนบใบรายชื่อมา (แบบที่ 2) = แนบบัญชีรายชื่อผลการตรวจสอบจากระบบของโรงเรียนให้อัตโนมัติ */
+const hasAgencyList = r => r.form == 1 && !!(r.file || (r.attachments || []).length);
 function enclList(r) {
-  if (!Array.isArray(r.enclosures)) r.enclosures = r.form == 1 ? [{ name: ENCL_TITLE, qty: 1, unit: 'ฉบับ' }] : [];
+  if (!Array.isArray(r.enclosures)) r.enclosures = hasAgencyList(r) ? [{ name: ENCL_AGENCY, qty: 1, unit: 'ชุด' }] : [{ name: ENCL_TITLE, qty: 1, unit: 'ฉบับ' }];
   return r.enclosures;
 }
+const enclHas = (r, name) => enclList(r).some(e => String(e.name || '').trim() === name);
 function enclShown(r) {
   const base = enclList(r).filter(e => String(e.name || '').trim());
   const n = wantsPP1(r) ? pp1Ready(r).length : 0;
@@ -1255,17 +1263,17 @@ const listIndex = r => enclShown(r).findIndex(e => e.name.trim() === ENCL_TITLE)
 /* "จำนวน … หน่วย" ชิดขอบขวาของกระดาษ ตัวเลขอยู่กึ่งกลางช่องเดียวกันทุกบรรทัด */
 const qtyHTML = (n, unit) => `<span class="qty">จำนวน<span class="qn">${esc(n)}</span>${esc(unit)}</span>`;
 function letterHTML(r) {
-  const st = S.settings, date = r.outDate || todayISO(), n = r.persons.length;
+  const st = S.settings, n = r.persons.length;
   const cnt = k => r.persons.filter(p => p.result === k).length;
   const summary = [['found', 'สำเร็จการศึกษาจริง'], ['mismatch', 'ข้อมูลไม่ตรงกับหลักฐานของโรงเรียน'], ['notfound', 'ไม่พบหลักฐานการสำเร็จการศึกษา']].filter(([k]) => cnt(k)).map(([k, t]) => `${t} จำนวน ${cnt(k)} ราย`).join(' ');
   const addr = [st.school, ...String(st.address || '').split('\n')].filter(Boolean).map(esc).join('<br>');
   const dots = '................................';
-  const foot = [st.office, 'โทร. ' + (st.phone || dots), st.fax && 'โทรสาร ' + st.fax, 'ไปรษณีย์อิเล็กทรอนิกส์ ' + (st.email || dots), st.contact && 'ผู้ประสานงาน ' + st.contact].filter(Boolean).map(t => `<p>${esc(t)}</p>`).join('');
+  const foot = [st.office, 'โทร. ' + (st.phone || dots), 'ไปรษณีย์อิเล็กทรอนิกส์ ' + (st.email || dots), st.contact && 'ผู้ประสานงาน ' + st.contact].filter(Boolean).map(t => `<p>${esc(t)}</p>`).join('');
   const f1 = r.form == 1, encs = enclShown(r), li = listIndex(r);
   const ref = encs.length > 1 ? ` ${li + 1}` : '';
   const body = `${r.outNo ? '' : '<div class="draftmark">ร่าง</div>'}
   <div class="lt-head"><p>ที่ ${esc(st.docPrefix)}${esc(r.outNo || '..........')}</p><p class="lt-addr">${addr}</p></div>
-  <p class="lt-date">${fmtLong(date)}</p>
+  <p class="lt-date">${letterDateText(r)}</p>
   <p class="lt-f"><span>เรื่อง</span><span>แจ้งผลการตรวจสอบวุฒิการศึกษา</span></p>
   <p class="lt-f"><span>เรียน</span><span>${esc(r.to || r.agency)}</span></p>
   <p class="lt-f"><span>อ้างถึง</span><span>หนังสือ${esc(r.agency)} ที่ ${esc(r.docNo)}<br>ลงวันที่ ${fmtLong(r.docDate)}</span></p>
@@ -1284,7 +1292,7 @@ function letterHTML(r) {
 }
 /* หน้าแนบ (แบบที่ 1): บัญชีรายชื่อพร้อมผลการตรวจสอบ */
 function enclHTML(r) {
-  const st = S.settings, date = r.outDate || todayISO();
+  const st = S.settings;
   return numFix(`<p class="en-title">บัญชีรายชื่อผู้ขอตรวจสอบคุณวุฒิการศึกษา</p>
   <p class="en-sub en-agency">${esc(r.agency)}</p>
   <p class="en-sub">ตามหนังสือ${esc(r.agency)}</p>
@@ -1297,6 +1305,9 @@ const docHTML = r => `<article class="letter" id="letter">${letterHTML(r)}</arti
 function enclEditor(r) {
   const lock = r.status === 'replied';
   return `<div class="card encl-editor"><div class="between wrap"><h3>สิ่งที่ส่งมาด้วย</h3>${lock ? '<span class="muted small">ส่งหนังสือแล้ว แก้ไขไม่ได้</span>' : '<button type="button" class="btn btn-outline sm" data-act="encadd">+ เพิ่มรายการ</button>'}</div>
+  <div class="sign-row"><span class="sign-lab">ใบรายชื่อที่แนบไป</span>
+    <label class="chk"><input type="checkbox" data-ch="enclist" data-v="agency" ${enclHas(r, ENCL_AGENCY) ? 'checked' : ''} ${lock ? 'disabled' : ''}> ใบรายชื่อจากสถาบัน${hasAgencyList(r) ? ' (หน่วยงานแนบมา)' : ''}</label>
+    <label class="chk"><input type="checkbox" data-ch="enclist" data-v="system" ${enclHas(r, ENCL_TITLE) ? 'checked' : ''} ${lock ? 'disabled' : ''}> บัญชีรายชื่อผลการตรวจสอบจากระบบของโรงเรียน${hasAgencyList(r) ? '' : ' (เพิ่มอัตโนมัติ เพราะหน่วยงานไม่ได้แนบใบรายชื่อ)'}</label></div>
   <datalist id="encl-presets">${ENCL_PRESETS.map(o => `<option value="${esc(o)}"></option>`).join('')}</datalist>
   ${enclList(r).length ? enclList(r).map((e, i) => `<div class="encl-row"><span class="muted">${i + 1}.</span>
     <input id="en-${i}-name" aria-label="ชื่อรายการ ${i + 1}" list="encl-presets" data-ch="enc" data-i="${i}" data-f="name" value="${esc(e.name)}" placeholder="เลือกหรือพิมพ์ชื่อเอกสาร" ${lock ? 'disabled' : ''}>
@@ -1353,6 +1364,15 @@ function signEditor(r) {
     <label class="chk"><input type="radio" name="sg-main" value="registrar" data-ch="rsign" data-f="main" ${sg.main === 'registrar' ? 'checked' : ''} ${dis}> นายทะเบียน (ปฏิบัติราชการแทน)</label></div>
   <div class="sign-row"><span class="sign-lab">ลงนามร่วม ${hasEncl ? '(ในบัญชีรายชื่อแนบท้าย)' : '(ท้ายหนังสือ)'}</span>
     ${CO_ROLES.map(k => `<label class="chk"><input type="checkbox" value="${k}" data-ch="rsign" data-f="co" ${sg.co.includes(k) ? 'checked' : ''} ${lock || (k === 'registrar' && sg.main === 'registrar') ? 'disabled' : ''}> ${SIGN_ROLES[k].label}</label>`).join('')}</div>
+  <div class="sign-row"><span class="sign-lab">ลงวันที่ในหนังสือ</span>
+    <label class="chk"><input type="radio" name="dt-mode" value="today" data-ch="rdate" ${dateMode(r) === 'today' ? 'checked' : ''} ${dis}> วันที่ออกหนังสือจริง (${fmtLong(r.outDate || todayISO())})</label>
+    <label class="chk"><input type="radio" name="dt-mode" value="custom" data-ch="rdate" ${dateMode(r) === 'custom' ? 'checked' : ''} ${dis}> กำหนดเอง</label>
+    ${dateMode(r) === 'custom' ? `<input type="date" class="inl" aria-label="วันที่ในหนังสือ" data-ch="rdatef" data-f="dateCustom" value="${esc(r.dateCustom || r.outDate || todayISO())}" ${dis}>` : ''}
+    <label class="chk"><input type="radio" name="dt-mode" value="monthyear" data-ch="rdate" ${dateMode(r) === 'monthyear' ? 'checked' : ''} ${dis}> ใส่เฉพาะเดือนและปี</label>
+    ${dateMode(r) === 'monthyear' ? `<select class="inl" aria-label="เดือน" data-ch="rdatef" data-f="dateMonth" ${dis}>${TH_M.map((m, i) => `<option value="${i + 1}" ${(r.dateMonth || new Date().getMonth() + 1) === i + 1 ? 'selected' : ''}>${m}</option>`).join('')}</select><input class="inl yr" type="number" aria-label="ปี พ.ศ." data-ch="rdatef" data-f="dateYear" value="${r.dateYear || beYear()}" min="2500" max="2700" ${dis}>` : ''}</div>
+  <div class="sign-row"><span class="sign-lab">เลขที่หนังสือส่ง</span>
+    <label class="chk"><input type="radio" name="out-year" value="0" data-ch="routyear" ${outYearOn(r) ? '' : 'checked'} ${dis}> ไม่ใส่ปี พ.ศ. (ที่ ${esc(S.settings.docPrefix)}${esc(outSeqOf(r) ? outSeqOf(r).n : '121')})</label>
+    <label class="chk"><input type="radio" name="out-year" value="1" data-ch="routyear" ${outYearOn(r) ? 'checked' : ''} ${dis}> ใส่ปี พ.ศ. (ที่ ${esc(S.settings.docPrefix)}${esc(outSeqOf(r) ? outSeqOf(r).n : '121')}/${outSeqOf(r) ? outSeqOf(r).y : beYear()})</label></div>
   <label class="chk"><input type="checkbox" data-ch="rgpa" ${showGpa(r) ? 'checked' : ''} ${dis}> แสดงผลการเรียนเฉลี่ยสะสม (เกรดเฉลี่ย) ในผลการตรวจสอบ</label>
   <label class="chk"><input type="checkbox" data-ch="rsign" data-f="img" ${sg.img !== false ? 'checked' : ''} ${dis}> ใส่ภาพลายเซ็นในหนังสือ (ปิดไว้ถ้าจะพิมพ์แล้วลงนามด้วยปากกา)</label>
   ${missing.length ? `<p class="muted small" style="margin:0">⚠️ ${missing.map(esc).join(' · ')} — เพิ่มได้ที่ ⚙️ ตั้งค่า › ผู้ลงนามและลายเซ็น</p>` : ''}</div>`;
@@ -1427,6 +1447,30 @@ function renderModal() {
     ensurePP1(r).then(() => { if (U.letterId === r.id) renderModal(); }).catch(e => toast('โหลดสำเนา ปพ.1 ไม่สำเร็จ: ' + cloudMsg(e), 'err')).finally(() => { U.pp1Loading = null; });
   }
 }
+
+/* ---------- วันที่ในหนังสือ / เลขที่หนังสือส่ง ---------- */
+/* โหมดวันที่: today = วันที่ออกหนังสือจริง (ค่าเริ่มต้น), custom = กำหนดเอง, monthyear = ใส่เฉพาะเดือนและปี (เว้นวันไว้เขียนเอง) */
+const dateMode = r => r.dateMode || 'today';
+function letterDateISO(r) { return dateMode(r) === 'custom' && r.dateCustom ? r.dateCustom : (r.outDate || todayISO()); }
+function letterDateText(r) {
+  if (dateMode(r) === 'monthyear') {
+    const m = r.dateMonth || (new Date().getMonth() + 1), y = r.dateYear || beYear();
+    return `      ${TH_M[m - 1]} ${y}`;
+  }
+  return fmtLong(letterDateISO(r));
+}
+/* เลขที่หนังสือส่ง: ค่าเริ่มต้นไม่ใส่ปี พ.ศ. (ที่ ศธ 04314.09/121) เลือกใส่ปีได้ (ที่ ศธ 04314.09/121/2569) */
+const outYearOn = r => r.outYearOn !== undefined ? !!r.outYearOn : !!S.settings.outNoYear;
+function outSeqOf(r) {
+  if (r.outSeq) return { n: r.outSeq, y: r.outYear || beYear() };
+  const m = String(r.outNo || '').match(/^(\d+)(?:\/(\d{4}))?$/);
+  return m ? { n: +m[1], y: m[2] ? +m[2] : beYear() } : null;
+}
+function setOutNo(r) {
+  const q = outSeqOf(r); if (!q) return;
+  r.outSeq = q.n; r.outYear = q.y;
+  r.outNo = outYearOn(r) ? `${q.n}/${q.y}` : String(q.n);
+}
 const outLeft = () => { const st = S.settings; return Math.max(0, st.outTo - Math.max(st.nextOut, st.outFrom) + 1); };
 /* ออกเลขหนังสือส่งจากช่วงที่งานธุรการจัดสรร คืนค่า false ถ้าเลขหมดช่วง */
 function issueNumber(r) {
@@ -1434,7 +1478,7 @@ function issueNumber(r) {
   const st = S.settings;
   if (st.nextOut < st.outFrom) st.nextOut = st.outFrom;
   if (st.nextOut > st.outTo) { toast(`เลขหนังสือส่งช่วง ${st.outFrom}–${st.outTo} ใช้ครบแล้ว กำหนดช่วงใหม่ที่ ⚙️ ตั้งค่า`, 'err'); return false; }
-  r.outNo = `${st.nextOut}/${beYear()}`; st.nextOut++;
+  r.outSeq = st.nextOut; r.outYear = beYear(); setOutNo(r); st.nextOut++;
   r.outDate = todayISO();
   addTL(r, `ออกเลขหนังสือส่ง ที่ ${r.outNo}`, true);
   return true;
@@ -1700,7 +1744,7 @@ function defaultMail(r) {
     subject: `แจ้งผลการตรวจสอบวุฒิการศึกษา – ${st.school} ที่ ${no}`,
     body: `เรียน ${r.to || r.agency}
 
-${st.school} ขอส่งหนังสือแจ้งผลการตรวจสอบวุฒิการศึกษา ที่ ${no} ลงวันที่ ${fmtLong(r.outDate || todayISO())} ตอบหนังสือของท่านที่ ${r.docNo} ลงวันที่ ${fmtLong(r.docDate)} รายละเอียดตามไฟล์แนบ
+${st.school} ขอส่งหนังสือแจ้งผลการตรวจสอบวุฒิการศึกษา ที่ ${no} ลงวันที่ ${letterDateText(r).trim()} ตอบหนังสือของท่านที่ ${r.docNo} ลงวันที่ ${fmtLong(r.docDate)} รายละเอียดตามไฟล์แนบ
 
 สรุปผล: ${summaryText(r)}
 
@@ -2431,6 +2475,15 @@ const CH = {
     catch (e) { toast('แนบสำเนาไม่สำเร็จ: ' + ((e && e.message) || e), 'err'); }
     if (U.letterId) renderModal(); else render();
   },
+  enclist: el => {
+    const r = getReq(U.letterId), name = el.dataset.v === 'agency' ? ENCL_AGENCY : ENCL_TITLE, L = enclList(r);
+    if (el.checked && !enclHas(r, name)) { if (name === ENCL_TITLE) L.unshift({ name, qty: 1, unit: 'ฉบับ' }); else L.push({ name, qty: 1, unit: 'ชุด' }); }
+    if (!el.checked) r.enclosures = L.filter(e => String(e.name || '').trim() !== name);
+    save(); renderModal();
+  },
+  rdate: el => { const r = getReq(U.letterId); r.dateMode = el.value; if (el.value === 'custom' && !r.dateCustom) r.dateCustom = r.outDate || todayISO(); save(); renderModal(); },
+  rdatef: el => { const r = getReq(U.letterId), f = el.dataset.f; r[f] = f === 'dateCustom' ? el.value : (parseInt(el.value, 10) || undefined); save(); if ($('#letterDoc')) $('#letterDoc').innerHTML = docHTML(r); },
+  routyear: el => { const r = getReq(U.letterId); r.outYearOn = el.value === '1'; if (r.outNo) { const old = r.outNo; setOutNo(r); if (old !== r.outNo) addTL(r, `ปรับรูปแบบเลขหนังสือส่งเป็น ที่ ${r.outNo}`); } save(); renderModal(); },
   rgpa: el => { const r = getReq(U.letterId); r.showGpa = el.checked; save(); if ($('#letterDoc')) $('#letterDoc').innerHTML = docHTML(r); },
   signer: el => { signers()[el.dataset.k][el.dataset.f] = el.value.trim(); save(); },
   signdef: el => {
@@ -2563,7 +2616,8 @@ const FORMS = {
   },
   settings: () => {
     const st = S.settings;
-    ['school', 'address', 'docPrefix', 'office', 'director', 'directorTitle', 'phone', 'fax', 'email', 'contact', 'gasUrl', 'gasKey', 'debtNote'].forEach(k => { st[k] = $('#st-' + k).value.trim(); });
+    ['school', 'address', 'docPrefix', 'office', 'director', 'directorTitle', 'phone', 'email', 'contact', 'gasUrl', 'gasKey', 'debtNote'].forEach(k => { st[k] = $('#st-' + k).value.trim(); });
+    st.outNoYear = $('#st-outNoYear').value === '1';
     st.slaDays = Math.min(60, Math.max(1, parseInt($('#st-slaDays').value, 10) || 7));
     st.thaiNum = $('#st-thaiNum').checked;
     st.letterGpa = $('#st-letterGpa').checked;
