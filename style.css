@@ -595,3 +595,13 @@ select.res{min-width:184px}
 .lw-body .grid.g2,.lw-body .grid.g3{grid-template-columns:1fr}
 .lw-body .pp1-row{grid-template-columns:1fr}
 @media(max-width:1180px){.lw{grid-template-columns:1fr}.lw-side{position:static;max-height:none}}
+/* เครื่องหมายถูก: Segoe UI Symbol คมและเป็นทางการ */
+.lt-table td.tick{font-family:"Segoe UI Symbol","Segoe UI","DejaVu Sans","Arial Unicode MS",sans-serif;font-size:15pt;font-weight:400;line-height:1}
+/* ตราประทับบนชื่อนายทะเบียน */
+.letter .co-sign{position:relative}
+.letter .seal-img{position:absolute;left:50%;top:-.35cm;width:2.8cm;height:auto;transform:translateX(-50%);opacity:.6;pointer-events:none;z-index:2}
+.seal-set{display:flex;gap:14px;align-items:center;border:1px solid var(--line);border-radius:var(--r);padding:12px;margin-top:12px;background:var(--surface2)}
+.seal-prev{width:86px;height:auto;background:#fff;border-radius:6px;padding:4px;border:1px solid var(--line)}
+/* ช่องสี่เหลี่ยมพร้อมเครื่องหมายถูก (สรุปผลในหนังสือ) และเครื่องหมายถูกในตาราง: Arial Unicode MS */
+.letter .cb{display:inline-block;width:.46cm;height:.46cm;border:1pt solid #000;vertical-align:-.06cm;margin-right:.18cm;text-align:center;font-family:"Arial Unicode MS","Segoe UI Symbol","DejaVu Sans",sans-serif;font-size:12pt;line-height:.44cm;font-weight:400}
+.lt-table td.tick{font-family:"Arial Unicode MS","Segoe UI Symbol","Segoe UI","DejaVu Sans",sans-serif}
