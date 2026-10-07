@@ -962,11 +962,11 @@ function verifyPanel(r) {
     const s = getStu(p.matchedId), o = s ? outstanding(s.id) : 0;
     return `<tr><td>${i + 1}</td>
     <td><b>${esc(pName(p))}</b><div class="sub">เลขประจำตัว ${esc(p.sid || '-')} · จบ ${p.gradDate ? fmtBE(p.gradDate) : esc(p.gradText || '-')} · ${esc(p.level || '-')}</div>${priorHTML(p, r)}</td>
-    <td>${s ? `<b>${esc(fullName(s))}</b><div class="sub">รหัส ${esc(s.sid)} · ${esc(s.level)} · จบ ${fmtBE(s.gradDate)}</div>${pp1Cell(s, r.status === 'replied')}${pp1Mini(s, r)}${stuExtra(s)}${missingData(p, r).length && r.status !== 'replied' ? `<div class="small" style="color:var(--danger-fg);font-weight:700">⚠️ ขาด ${missingData(p, r).join(', ')}</div>` : ''}` : '<span class="muted">—</span>'}${p.auto ? `<div class="small auto">${esc(p.auto)}</div>` : ''}${suggestHTML(p, r, i)}</td>
+    <td>${s ? `<b>${esc(fullName(s))}</b><div class="sub">รหัส ${esc(s.sid)} · ${esc(s.level)} · จบ ${fmtBE(s.gradDate)}</div>${pp1Cell(s, r.status === 'replied')}${pp1Mini(s, r)}${stuExtra(s)}${missingData(p, r).length && r.status !== 'replied' ? `<div class="small" style="color:var(--danger-fg);font-weight:700">⚠️ ขาด ${missingData(p, r).join(', ')}</div>` : ''}` : '<span class="muted">—</span>'}${p.auto ? `<div class="small auto">${esc(p.auto)}</div>` : ''}${suggestHTML(p, r, i)}${manualBtn(r, p, i)}</td>
     <td class="num">${s && s.gpa ? `<b>${esc(s.gpa)}</b>` : '<span class="muted">—</span>'}</td>
     <td>${s ? (o > 0 ? `<span class="badge danger">฿${money(o)}</span>` : '<span class="badge ok">ไม่มี</span>') : '<span class="muted">—</span>'}</td>
     <td><select id="res-${p.id}" aria-label="ผลการตรวจสอบ ${esc(p.fname)}" class="res r-${p.result}" data-ch="res" data-r="${r.id}" data-i="${i}" ${r.status === 'replied' ? 'disabled' : ''}>${Object.entries(RESULT).map(([k, v]) => `<option value="${k}" ${p.result === k ? 'selected' : ''}>${v.t}</option>`).join('')}</select></td>
-    <td><input id="note-${p.id}" aria-label="หมายเหตุ ${esc(p.fname)}" data-ch="note" data-r="${r.id}" data-i="${i}" value="${esc(p.note)}" list="note-presets" placeholder="${hasDebt(p) ? 'ระบบใส่หมายเหตุค้างชำระให้' : p.result === 'found' ? 'ถ้ามี' : 'ระบุปัญหาที่พบ'}" ${r.status === 'replied' ? 'disabled' : ''}></td></tr>`;
+    <td><input id="note-${p.id}" aria-label="หมายเหตุ ${esc(p.fname)}" data-ch="note" data-r="${r.id}" data-i="${i}" value="${esc(p.note)}" list="note-presets" placeholder="${hasDebt(p) ? 'ระบบใส่หมายเหตุค้างชำระให้' : p.result === 'found' ? 'ถ้ามี' : 'ระบุปัญหาที่พบ'}" ${r.status === 'replied' ? 'disabled' : ''}></td></tr>${manualOpenFor(r, i) ? manualRow(r, p, i) : ''}`;
   }).join('')}
   </tbody></table></div><datalist id="note-presets">${NOTE_PRESETS.map(o => `<option value="${o}"></option>`).join('')}</datalist><p class="muted small" style="margin:10px 0 0">🔒 คอลัมน์ค่าบำรุงค้างชำระและเลข ปพ.1 แสดงเฉพาะเจ้าหน้าที่ ไม่ปรากฏในหนังสือตอบและหน้าหน่วยงานภายนอก</p></div>`;
 }
@@ -2388,6 +2388,61 @@ function regImportCard() {
   <div id="reg-msg" style="margin-top:10px">${U.regMsg ? `<p class="notice ok" style="margin:0">${U.regMsg}</p>` : ''}</div></div>`;
 }
 
+/* ---------- ตรวจสอบเองโดยเจ้าหน้าที่ (กรณีไม่พบในฐานข้อมูล) ----------
+   เจ้าหน้าที่ตรวจกับหลักฐานจริง (ปพ.3 / สมุดทะเบียน / แฟ้มนักเรียน) แล้วบันทึกผล
+   ถ้าสำเร็จการศึกษาจริง ระบบเพิ่มรายชื่อเข้าฐานข้อมูลผู้สำเร็จการศึกษาให้ด้วย (ใช้ซ้ำได้ครั้งหน้า) */
+const MANUAL_EVIDENCE = ['ปพ.3 (แบบรายงานผู้สำเร็จการศึกษา) ต้นฉบับ', 'สมุดทะเบียนนักเรียน', 'ปพ.1 ฉบับสำเนาคู่ฉบับ', 'แฟ้มประวัตินักเรียน', 'ระบบสารสนเทศของโรงเรียน'];
+const manualOpenFor = (r, i) => U.manual && U.manual.r === r.id && U.manual.i === i;
+function manualBtn(r, p, i) {
+  if (r.status === 'replied' || manualOpenFor(r, i)) return '';
+  if (getStu(p.matchedId) && p.result !== 'notfound') return '';
+  return `<div style="margin-top:8px"><button type="button" class="btn btn-outline sm" data-act="manualopen" data-r="${r.id}" data-i="${i}">✍️ ตรวจสอบเอง (กรณีไม่พบในฐานข้อมูล)</button></div>`;
+}
+function manualRow(r, p, i) {
+  const m = p.manualCheck || {}, lv = ['ม.3', 'ม.6'];
+  const v = (k, d = '') => esc(m[k] ?? d);
+  return `<tr class="manual-row"><td></td><td colspan="6"><div class="manual-box" data-r="${r.id}" data-i="${i}">
+    <div class="between wrap"><b>✍️ ตรวจสอบเองโดยเจ้าหน้าที่ · ${esc(pName(p))}</b><button type="button" class="icon-btn" data-act="manualclose" aria-label="ปิด">✕</button></div>
+    <p class="muted small" style="margin:0">ตรวจกับหลักฐานของโรงเรียนแล้วกรอกผล ถ้า "สำเร็จการศึกษาจริง" ระบบจะเพิ่มรายชื่อนี้เข้าฐานข้อมูลผู้สำเร็จการศึกษาให้ และใช้ข้อมูลนี้ในหนังสือตอบ</p>
+    <div class="grid g4">
+      <div><label for="mc-sid">เลขประจำตัวนักเรียน</label><input id="mc-sid" value="${v('sid', p.sid)}" inputmode="numeric"></div>
+      <div><label for="mc-cid">เลขบัตรประชาชน</label><input id="mc-cid" value="${v('cid', p.cid)}" inputmode="numeric" maxlength="17"></div>
+      <div><label for="mc-level">ระดับชั้นที่จบ</label><select id="mc-level"><option value="">— เลือก —</option>${lv.map(o => `<option ${(m.level || normLevel(p.level || '')) === o ? 'selected' : ''}>${o}</option>`).join('')}</select></div>
+      <div><label for="mc-date">วันที่จบ (อนุมัติจบ)</label><input id="mc-date" value="${v('gradText', p.gradDate ? fmtBE(p.gradDate) : p.gradText)}" placeholder="31/03/2568"></div>
+      <div><label for="mc-gpa">เกรดเฉลี่ย</label><input id="mc-gpa" value="${v('gpa')}" inputmode="decimal" placeholder="เช่น 3.25"></div>
+      <div><label for="mc-pp1s">ปพ.1 ชุดที่</label><input id="mc-pp1s" value="${v('pp1Set')}" inputmode="numeric" placeholder="00000"></div>
+      <div><label for="mc-pp1n">ปพ.1 เลขที่</label><input id="mc-pp1n" value="${v('pp1No')}" inputmode="numeric" placeholder="000000"></div>
+      <div><label for="mc-ev">หลักฐานที่ใช้ตรวจ</label><input id="mc-ev" list="mc-evlist" value="${v('evidence', MANUAL_EVIDENCE[0])}"><datalist id="mc-evlist">${MANUAL_EVIDENCE.map(o => `<option value="${esc(o)}"></option>`).join('')}</datalist></div>
+    </div>
+    <div class="sign-row"><span class="sign-lab">ผลการตรวจสอบ</span>
+      ${[['found', 'สำเร็จการศึกษาจริง'], ['mismatch', 'ข้อมูลไม่ตรงกับหลักฐาน'], ['notfound', 'ไม่พบหลักฐานการสำเร็จการศึกษา']].map(([k, t]) => `<label class="chk"><input type="radio" name="mc-res" value="${k}" ${(m.result || 'found') === k ? 'checked' : ''}> ${t}</label>`).join('')}</div>
+    <div><label for="mc-note">หมายเหตุ (แสดงในหนังสือตอบ ถ้ามี)</label><input id="mc-note" value="${esc(p.note || '')}" list="note-presets" placeholder="เช่น ชื่อสกุลเดิม … / ศึกษาต่อสถาบันอื่น"></div>
+    <div class="row end"><button type="button" class="btn btn-outline" data-act="manualclose">ยกเลิก</button><button type="button" class="btn btn-primary" data-act="manualsave">บันทึกผลการตรวจสอบเอง</button></div>
+  </div></td></tr>`;
+}
+function manualSave() {
+  const box = $('.manual-box'); if (!box) return;
+  const r = getReq(box.dataset.r), p = r && r.persons[+box.dataset.i]; if (!p) return;
+  const val = id => ($('#' + id)?.value || '').trim();
+  const res = (document.querySelector('input[name="mc-res"]:checked') || {}).value || 'found';
+  const m = { sid: digits(val('mc-sid')), cid: digits(val('mc-cid')), level: val('mc-level'), gradText: val('mc-date'), gpa: val('mc-gpa'), pp1Set: digits(val('mc-pp1s')), pp1No: digits(val('mc-pp1n')), evidence: val('mc-ev'), result: res, by: CLOUD && U.me ? U.me.email : 'เจ้าหน้าที่', at: Date.now() };
+  const gd = parseDateAny(m.gradText);
+  if (res === 'found') {
+    const miss = [!m.sid && 'เลขประจำตัวนักเรียน', !m.level && 'ระดับชั้นที่จบ', !gd && 'วันที่จบ'].filter(Boolean);
+    if (miss.length) return toast('กรอกให้ครบเพื่อยืนยันว่าสำเร็จการศึกษาจริง: ' + miss.join(', '), 'err');
+    let s = S.students.find(x => (m.cid && x.cid === m.cid) || (sidKey(x.sid) === sidKey(m.sid) && x.level === m.level));
+    const data = { sid: m.sid, cid: m.cid, prefix: p.prefix, fname: p.fname, lname: p.lname, level: m.level, gradDate: gd, gpa: fmtGpa(m.gpa) || m.gpa, pp1Set: m.pp1Set ? m.pp1Set.padStart(5, '0') : '', pp1No: m.pp1No ? m.pp1No.padStart(6, '0') : '', source: 'ตรวจสอบเองโดยเจ้าหน้าที่ (' + (m.evidence || 'หลักฐานของโรงเรียน') + ')' };
+    if (s) Object.keys(data).forEach(k => { if (data[k] && !s[k]) s[k] = data[k]; });
+    else { s = Object.assign({ id: uid('s'), dob: '', father: '', mother: '' }, data); S.students.push(s); }
+    Object.assign(p, { matchedId: s.id, result: 'found' });
+  } else Object.assign(p, { result: res });
+  p.manual = true; p.manualCheck = m; p.note = val('mc-note');
+  p.auto = `ตรวจสอบเองโดยเจ้าหน้าที่ · หลักฐาน: ${m.evidence || '-'}`;
+  addTL(r, `ตรวจสอบเอง: ${pName(p)} → ${RESULT[p.result].t} (หลักฐาน: ${m.evidence || '-'})`);
+  U.manual = null; refreshStatus(r); save(); render();
+  toast(res === 'found' ? `บันทึกผลแล้ว และเพิ่ม ${pName(p)} เข้าฐานข้อมูลผู้สำเร็จการศึกษา` : 'บันทึกผลการตรวจสอบแล้ว');
+}
+
 const VIEW_FN = { dash: vDash, receive: vReceive, outgoing: vOutgoing, verify: vVerify, grads: vGrads, fees: vFees, track: vTrack, reports: vReports, settings: vSettings };
 function topBar() {
   if (U.mode === 'staff' && U.staffAuth) return `${CLOUD ? syncChip() : ''}<button type="button" class="seg-search" data-act="gsopen" aria-label="ค้นหาทั้งระบบ (Ctrl K)">${ic('search')} ค้นหา <kbd>Ctrl K</kbd></button><span class="who">🧑‍💼 ${esc(CLOUD && U.me ? U.me.email : 'เจ้าหน้าที่')}</span><button type="button" data-act="home">หน้าแรก</button><button type="button" data-act="logout">ออกจากระบบ</button>`;
@@ -2442,6 +2497,9 @@ const ACT = {
     document.querySelectorAll(`.tab[data-k="${k}"]`).forEach(t => { const on = t.dataset.v === v; t.classList.toggle('on', on); t.setAttribute('aria-selected', on); });
   },
   go: b => { if (b.closest('#gs-res')) closeSearch(); go(b.dataset.v); },
+  manualopen: b => { U.manual = { r: b.dataset.r, i: +b.dataset.i }; render(); setTimeout(() => $('.manual-box')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50); },
+  manualclose: () => { U.manual = null; render(); },
+  manualsave: () => manualSave(),
   pickstu: b => {
     const r = getReq(b.dataset.r), p = r && r.persons[+b.dataset.i], s = getStu(b.dataset.s); if (!p || !s) return;
     const m = compareWith(p, s);

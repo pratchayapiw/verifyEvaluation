@@ -612,3 +612,7 @@ select.res{min-width:184px}
 .letter .co-name{margin-top:2pt!important}
 .letter .co-signs{gap:.3cm}
 .letter .en-by{margin-top:8pt;text-align:left}
+/* ตรวจสอบเองโดยเจ้าหน้าที่ */
+.manual-row td{background:var(--primary-soft)!important;border-bottom:1px solid var(--line)}
+.manual-box{display:grid;gap:12px;padding:6px 4px}
+.manual-box input,.manual-box select{padding:8px 10px;font-size:14px}
