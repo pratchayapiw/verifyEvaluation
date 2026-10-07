@@ -589,7 +589,7 @@ function importGradCSV(text) {
   return { added, updated, skipped };
 }
 function personsFromMatrix(rows) {
-  let hi = rows.findIndex(r => r.some(c => /ชื่อ/.test(String(c))));
+  let hi = rows.findIndex(r => r.some(c => { const t = String(c ?? '').trim(); return t.length <= 30 && /ชื่อ/.test(t); }));
   const h = hi >= 0 ? rows[hi].map(c => String(c).trim()) : [];
   const find = re => h.findIndex(x => re.test(x));
   let iSid = find(/เลขประจำตัว(?!ประชาชน)|รหัส/), iFull = find(/ชื่อ\s*-?\s*(ชื่อ)?\s*สกุล/), iF = find(/^ชื่อ$|^ชื่อ\s|ชื่อ(?!.*สกุล)/), iL = find(/^สกุล|นามสกุล|^สกุล$/), iDate = find(/จบ|วันที่/), iLv = find(/ระดับ|ชั้น/);
@@ -603,7 +603,7 @@ function personsFromMatrix(rows) {
     if (iPre >= 0 && String(r[iPre] ?? '').trim()) prefix = String(r[iPre]).trim();
     const gd = parseDateAny(r[iDate] ?? '');
     return { sid: iSid >= 0 ? splitIds(r[iSid] ?? '').sid || String(r[iSid] ?? '').trim() : '', prefix, fname, lname, gradText: gd ? fmtBE(gd) : String(r[iDate] ?? '').trim(), level: iLv >= 0 && r[iLv] ? normLevel(r[iLv]) : '' };
-  }).filter(p => p.fname);
+  }).filter(p => p.fname && p.fname.length <= 40 && (p.lname || '').length <= 40);
 }
 
 /* ---------- บัญชีผู้ใช้และการเข้าสู่ระบบ ---------- */
@@ -1310,8 +1310,8 @@ const GOV_RE = /^(โรงเรียน|โรงพยาบาล|ศูน
 const defaultTitle = ag => GOV_RE.test(String(ag || '').trim()) ? 'ผู้อำนวยการ' : 'ผู้จัดการ';
 function toLine(r) {
   const ag = String(r.agency || '').trim(), sq = x => String(x || '').replace(/\s+/g, '');
-  const sep = /^(บริษัท|ห้าง|ธนาคาร|บจก)/.test(ag) ? ' ' : '';
   let to = String(r.to || '').trim();
+  const sep = /^(บริษัท|ห้าง|ธนาคาร|บจก)/.test(ag) || (to && to.replace(TITLE_RE, '').trim()) ? ' ' : '';
   if (!to) return ag ? `${defaultTitle(ag)}${sep}${ag}` : '';
   if (ag && !sq(to).includes(sq(ag))) to = `${to}${sep}${ag}`;
   return to;
@@ -2839,7 +2839,9 @@ const CH = {
     if (!/\.(csv|txt|xlsx?)$/i.test(f.name)) { runScan([f], { personsOnly: true }); return; }
     if (/\.(csv|txt|xlsx?)$/i.test(f.name)) {
       try {
-        const ps = personsFromMatrix(await fileToMatrix(f));
+        const mx = await fileToMatrix(f);
+        if (isRegisterSheet(mx)) { U.draft.file = ''; const x = importRegister(mx); U.regMsg = regMsg(x); U.rtab = 'register'; render(); toast(`ไฟล์นี้เป็นทะเบียนหนังสือรับ นำเข้า ${x.total} ฉบับแล้ว (ไม่ใช่ใบรายชื่อ)`); return; }
+        const ps = personsFromMatrix(mx);
         if (ps.length) { const kept = U.draft.persons.filter(p => p.fname || p.sid); U.draft.persons = [...kept, ...ps]; toast(`ดึงรายชื่อจากไฟล์ ${ps.length} ราย`); }
         else toast('ไม่พบรายชื่อในไฟล์ พิมพ์รายชื่อลงตารางแทน', 'err');
       } catch (e) { toast('อ่านไฟล์ไม่สำเร็จ: ' + e.message, 'err'); }
