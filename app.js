@@ -484,7 +484,7 @@ function compareWith(p, s) {
   return issues.length ? { result: 'mismatch', auto: issues.join(' · ') } : { result: 'found', auto: 'ข้อมูลตรงกับฐานข้อมูล' };
 }
 function refreshStatus(r) {
-  if (r.status === 'replied' || !registered(r)) return;
+  if (r.status === 'replied' || !registered(r) || !r.persons.length) return;
   const pend = r.persons.filter(p => p.result === 'pending').length;
   const ns = pend === 0 ? 'done' : (pend < r.persons.length ? 'checking' : 'received');
   if (ns !== r.status) {
@@ -810,7 +810,7 @@ function resultSummary(r) {
 function reqTable(list, ctx) {
   if (!list.length) return `<p class="muted">ยังไม่มีหนังสือ</p>`;
   return `<div class="tablewrap"><table><thead><tr><th>เลขรับ</th><th>วันที่รับ</th><th>หน่วยงาน / เลขที่หนังสือ</th><th>แบบ</th><th class="num">ราย</th><th>สถานะ</th><th></th></tr></thead><tbody>
-  ${list.map(r => `<tr><td><b>${esc(r.regNo)}</b></td><td>${fmtBE(r.recvDate)}</td><td>${esc(r.agency)}<div class="sub">ที่ ${esc(r.docNo)}</div></td><td>${r.form == 1 ? 'แบบที่ 1' : 'แบบที่ 2'}</td><td class="num">${r.persons.length}</td><td>${statusBadge(r)}<div style="margin-top:4px">${ageChip(r)}</div></td>
+  ${list.map(r => `<tr><td><b>${esc(r.regNo)}</b></td><td>${fmtBE(r.recvDate)}</td><td>${esc(r.agency)}<div class="sub">ที่ ${esc(r.docNo)}</div></td><td>${r.form == 1 ? 'แบบที่ 1' : 'แบบที่ 2'}</td><td class="num">${r.persons.length}</td><td>${statusBadge(r)}${r.urgent ? ` <span class="badge danger">${esc(r.urgent)}</span>` : ''}<div style="margin-top:4px">${ageChip(r)}</div></td>
   <td class="tdact"><button type="button" class="btn btn-outline sm" data-act="openverify" data-id="${r.id}">ตรวจสอบ</button>${ctx === 'dash' ? '' : ` <button type="button" class="btn btn-outline sm" data-act="opentrack" data-id="${r.id}">ติดตาม</button>`}${ctx === 'receive' && r.status !== 'replied' ? ` <button type="button" class="btn btn-outline sm" data-act="editreq" data-id="${r.id}">แก้ไข</button>` : ''}${ctx === 'receive' ? ` <button type="button" class="btn btn-outline sm" data-act="delreq" data-id="${r.id}">ลบ</button>` : ''}</td></tr>`).join('')}
   </tbody></table></div>`;
 }
@@ -865,6 +865,8 @@ function vReceive() {
       <div><label for="rc-date">วันที่รับ</label><input id="rc-date" type="date" data-in="df" data-f="date" value="${esc(d.date)}"></div>
       <div><label for="rc-docno">เลขที่หนังสือของหน่วยงาน</label><input id="rc-docno" data-in="df" data-f="docno" value="${esc(d.docno)}" placeholder="เช่น ABC 123/2569"></div>
       <div><label for="rc-docdate">หนังสือลงวันที่</label><input id="rc-docdate" type="date" data-in="df" data-f="docdate" value="${esc(d.docdate)}"></div>
+      <div class="span2"><label for="rc-due">กำหนดส่งตามหนังสือ (ถ้ามี)</label><input id="rc-due" data-in="df" data-f="due" value="${esc(d.due || '')}" placeholder="เช่น ภายใน 15 วันนับแต่วันรับหนังสือ / 16 ตุลาคม 2569"></div>
+      <div class="span2"><label for="rc-how">ช่องทางที่ขอให้ตอบกลับ (ถ้ามี)</label><input id="rc-how" data-in="df" data-f="how" value="${esc(d.how || '')}" placeholder="เช่น ไปรษณีย์ (ซองตอบกลับแนบมา) หรืออีเมล"></div>
     </div></fieldset>
     <fieldset class="fs"><legend><span class="fs-n">2</span>หน่วยงานผู้ขอ (ใช้ในหนังสือตอบ)</legend>
     <div class="grid g3">
@@ -899,7 +901,7 @@ function vReceive() {
     <div class="row end form-actions">${d.editingId ? '' : '<button type="button" class="btn btn-outline" data-act="resetdraft">ล้างฟอร์ม</button>'}<button class="btn btn-primary" type="submit">${d.editingId ? '💾 บันทึกการแก้ไข' : 'บันทึกรับหนังสือ'}</button></div>
   </form></div>
   <div ${tp('rtab', 'inbox', 'form')}>${onlineInbox()}</div>
-  <div class="card" ${tp('rtab', 'register', 'form')}><h2>ทะเบียนหนังสือรับ</h2>${reqTable(REQS().sort(byRecv), 'receive')}</div>`;
+  <div class="stack" ${tp('rtab', 'register', 'form')}>${regImportCard()}<div class="card"><h2>ทะเบียนหนังสือรับ</h2>${reqTable(REQS().sort(byRecv), 'receive')}</div></div>`;
 }
 
 function quickResults() {
@@ -948,7 +950,9 @@ function letterNote(p) {
 function verifyPanel(r) {
   const pend = r.persons.filter(p => p.result === 'pending').length, inc = r.status === 'replied' ? [] : incompleteOf(r), debt = r.persons.filter(hasDebt);
   return `<div class="card"><div class="between wrap"><div><span class="eyebrow">เลขรับ ${esc(r.regNo)} · ${r.form == 1 ? 'แบบที่ 1 แนบบัญชีรายชื่อจากหน่วยงาน' : 'แบบที่ 2 ระบุรายชื่อ'}</span><h2 style="margin:4px 0">${esc(r.agency)}</h2><p class="muted small" style="margin:0">หนังสือที่ ${esc(r.docNo)} ลงวันที่ ${fmtLong(r.docDate)} · รับเมื่อ ${fmtLong(r.recvDate)}${r.file ? ' · ไฟล์แนบ ' + esc(r.file) : ''}${r.source === 'online' ? ' · <span class="badge info">ส่งผ่านระบบออนไลน์</span>' : ''}</p>${attChips(r)}</div>
-  <div class="row">${statusBadge(r)}${r.status !== 'replied' ? `<button type="button" class="btn btn-outline" data-act="editreq" data-id="${r.id}">✏️ แก้ไขข้อมูลรับหนังสือ</button><button type="button" class="btn btn-blue" data-act="automatch" data-id="${r.id}">⚡ ตรวจอัตโนมัติ</button>` : ''}<button type="button" class="btn btn-green" data-act="letter" data-id="${r.id}" ${pend || inc.length ? 'disabled' : ''}>📝 หนังสือตอบ</button></div></div>
+  <div class="row">${statusBadge(r)}${r.status !== 'replied' ? `<button type="button" class="btn btn-outline" data-act="editreq" data-id="${r.id}">✏️ แก้ไขข้อมูลรับหนังสือ</button>${r.persons.length ? `<button type="button" class="btn btn-blue" data-act="automatch" data-id="${r.id}">⚡ ตรวจอัตโนมัติ</button>` : ''}` : ''}<button type="button" class="btn btn-green" data-act="letter" data-id="${r.id}" ${pend || inc.length || !r.persons.length ? 'disabled' : ''}>📝 หนังสือตอบ</button></div></div>
+  ${!r.persons.length && r.status !== 'replied' ? `<p class="notice warn row" style="margin-top:14px">ยังไม่มีรายชื่อผู้ขอตรวจสอบในหนังสือฉบับนี้ <button type="button" class="btn btn-outline sm" data-act="editreq" data-id="${r.id}">✏️ เพิ่มรายชื่อ</button></p>` : ''}
+  ${r.replyHow || r.dueText ? `<p class="small" style="margin:10px 0 0">${r.dueText ? `<b>กำหนดส่ง:</b> ${esc(r.dueText)}${dueOf(r) && !findDate(r.dueText) ? ` (ภายใน ${fmtLong(dueOf(r))})` : ''}` : ''}${r.dueText && r.replyHow ? ' · ' : ''}${r.replyHow ? `<b>ช่องทางที่ขอให้ตอบกลับ:</b> ${esc(r.replyHow)}` : ''}</p>` : ''}
   ${pend && r.status !== 'replied' ? `<p class="notice warn" style="margin-top:14px">ยังมี ${pend} รายที่รอผล กด "ตรวจอัตโนมัติ" แล้วตรวจทานผลก่อนสร้างหนังสือตอบ</p>` : ''}
   ${inc.length ? `<p class="notice danger" style="margin-top:10px">ข้อมูลยังไม่ครบสำหรับผู้ที่ยืนยันว่าสำเร็จการศึกษาจริง ${inc.length} ราย: ${inc.map(p => `<b>${esc(pName(p))}</b> (ขาด ${missingData(p, r).join(', ')})`).join(' · ')} — กรอกให้ครบก่อนสร้างหนังสือตอบ</p>` : ''}
   ${r.status !== 'replied' && wantsPP1(r) && pp1Missing(r).length ? `<p class="notice warn" style="margin-top:10px">📘 หน่วยงานนี้ต้องการสำเนา ปพ.1 ประกอบหนังสือตอบ ยังไม่มีไฟล์ ${pp1Missing(r).length} ราย: ${pp1Missing(r).map(t => esc(pName(t.p))).join(', ')} — กด "แนบสำเนา ปพ.1" ในตาราง</p>` : ''}
@@ -974,7 +978,7 @@ function vOutgoing() {
   <div class="ledger">${stat('รอสร้างหนังสือตอบ', waitLetter, 'ฉบับ', 'var(--yellow)')}${stat('ออกเลขแล้ว รอส่ง', waitSend, 'ฉบับ', 'var(--blue)')}${stat('ส่งแล้ว', sent, 'ฉบับ', 'var(--green)')}</div>
   <p class="notice ${outLeft() <= 5 ? 'warn' : 'info'}" style="margin:0">เลขหนังสือส่งที่ได้รับจัดสรร ${S.settings.docPrefix}${S.settings.outFrom}–${S.settings.outTo} · เลขถัดไป ${Math.max(S.settings.nextOut, S.settings.outFrom)} · เหลือ ${outLeft()} เลข <button type="button" class="btn btn-outline sm" data-act="go" data-v="settings">กำหนดช่วงเลข</button></p>
   <div class="card"><h2>ทะเบียนหนังสือส่ง</h2><div class="tablewrap"><table><thead><tr><th>เลขรับ</th><th>หน่วยงาน</th><th>สรุปผล</th><th>เลขหนังสือส่ง</th><th>วันที่ส่ง</th><th>สถานะ</th><th></th></tr></thead><tbody>
-  ${R.map(r => { const pend = r.persons.some(p => p.result === 'pending'); return `<tr><td><b>${esc(r.regNo)}</b></td><td>${esc(r.agency)}<div class="sub">อ้างถึง ${esc(r.docNo)}</div></td><td>${resultSummary(r)}</td><td>${r.outNo ? esc(S.settings.docPrefix + r.outNo) : '<span class="muted">—</span>'}</td><td>${r.sentDate ? fmtBE(r.sentDate) : '<span class="muted">—</span>'}</td><td>${statusBadge(r)}</td>
+  ${R.map(r => { const pend = !r.persons.length || r.persons.some(p => p.result === 'pending'); return `<tr><td><b>${esc(r.regNo)}</b></td><td>${esc(r.agency)}<div class="sub">อ้างถึง ${esc(r.docNo)}</div></td><td>${resultSummary(r)}</td><td>${r.outNo ? esc(S.settings.docPrefix + r.outNo) : '<span class="muted">—</span>'}</td><td>${r.sentDate ? fmtBE(r.sentDate) : '<span class="muted">—</span>'}</td><td>${statusBadge(r)}</td>
   <td class="tdact">${pend || (r.status !== 'replied' && incompleteOf(r).length) ? `<button type="button" class="btn btn-outline sm" data-act="openverify" data-id="${r.id}">${pend ? 'ตรวจให้ครบก่อน' : 'ข้อมูลยังไม่ครบ'}</button>` : `<button type="button" class="btn btn-outline sm" data-act="letter" data-id="${r.id}">📝 ${r.outNo ? 'ดูหนังสือ' : 'สร้างหนังสือ'}</button>`}${r.outNo && r.status !== 'replied' ? ` <button type="button" class="btn btn-green sm" data-act="sent" data-id="${r.id}">บันทึกส่งแล้ว</button>` : ''}</td></tr>`; }).join('')}
   </tbody></table></div></div>`;
 }
@@ -1329,12 +1333,12 @@ function letterHTML(r) {
   <p class="lt-f"><span>เรียน</span><span>${esc(toLine(r))}</span></p>
   <p class="lt-f"><span>อ้างถึง</span><span>หนังสือ${esc(r.agency)} ที่ ${esc(r.docNo)}<br>ลงวันที่ ${fmtLong(r.docDate)}</span></p>
   ${encs.length ? `<p class="lt-f"><span>สิ่งที่ส่งมาด้วย</span><span class="enc-lines">${encs.map((e, i) => `<span class="lt-cnt"><span>${encs.length > 1 ? (i + 1) + '. ' : ''}${esc(e.name.trim())}</span>${qtyHTML(Math.max(1, parseInt(e.qty, 10) || 1), e.unit || 'ฉบับ')}</span>`).join('')}</span></p>` : ''}
-  <p class="lt-p">ตามหนังสือที่อ้างถึง ${esc(r.agency)} ขอให้โรงเรียนตรวจสอบวุฒิการศึกษาของบุคคล จำนวน ${n} ราย ${f1 ? 'ตามใบรายชื่อที่แนบมาพร้อมหนังสือ' : 'ตามรายชื่อที่ระบุในหนังสือ'} ความละเอียดแจ้งแล้ว นั้น</p>
+  <p class="lt-p">ตามหนังสือที่อ้างถึง ${esc(r.agency)} ขอความอนุเคราะห์ให้โรงเรียนตรวจสอบวุฒิการศึกษาของบุคคล จำนวน ${n} ราย ${f1 ? 'ตามบัญชีรายชื่อที่แนบมาพร้อมหนังสือ' : 'ตามรายชื่อที่ระบุในหนังสือ'} ความละเอียดแจ้งแล้ว นั้น</p>
   ${li >= 0
-    ? `<p class="lt-p">${esc(st.school)} ได้ตรวจสอบกับหลักฐานทางการศึกษาของโรงเรียนแล้ว ปรากฏผลดังนี้</p>
+    ? `<p class="lt-p">${esc(st.school)} ขอเรียนว่า ได้ตรวจสอบกับหลักฐานทางการศึกษาของโรงเรียนแล้ว ปรากฏผล ดังนี้</p>
   ${[['found', 'สำเร็จการศึกษาจริง'], ['mismatch', 'ข้อมูลไม่ตรงกับหลักฐานของโรงเรียน'], ['notfound', 'ไม่พบหลักฐานการสำเร็จการศึกษา']].map(([k, t], i) => `<p class="lt-li lt-cnt"><span><span class="cb${cnt(k) ? ' on' : ''}">${cnt(k) ? '✓' : ''}</span> ${i + 1}. ${t}</span>${qtyHTML(cnt(k) || '-', 'ราย')}</p>`).join('')}
   <p class="lt-p">ทั้งนี้ รายละเอียดผลการตรวจสอบวุฒิการศึกษารายบุคคล ปรากฏตามสิ่งที่ส่งมาด้วย${ref}</p>`
-    : `<p class="lt-p">${esc(st.school)} ได้ตรวจสอบกับหลักฐานทางการศึกษาของโรงเรียนแล้ว ปรากฏผลดังนี้</p>${resultTable(r)}`}
+    : `<p class="lt-p">${esc(st.school)} ขอเรียนว่า ได้ตรวจสอบกับหลักฐานทางการศึกษาของโรงเรียนแล้ว ปรากฏผล ดังนี้</p>${resultTable(r)}`}
   <p class="lt-p">จึงเรียนมาเพื่อโปรดทราบ</p>
   ${mainSignHTML(r)}
   ${listIndex(r) < 0 ? coSignHTML(r, 'in-letter') : ''}
@@ -1344,12 +1348,13 @@ function letterHTML(r) {
 /* หน้าแนบ (แบบที่ 1): บัญชีรายชื่อพร้อมผลการตรวจสอบ */
 function enclHTML(r) {
   const st = S.settings;
-  return numFix(`<p class="en-title">บัญชีรายชื่อผู้ขอตรวจสอบคุณวุฒิการศึกษา</p>
+  return numFix(`<p class="en-title">${ENCL_TITLE}</p>
   <p class="en-sub en-agency">${esc(r.agency)}</p>
   <p class="en-sub">ตามหนังสือ${esc(r.agency)}</p>
   <p class="en-sub en-ref">ที่ ${esc(r.docNo)} ลงวันที่ ${fmtLong(r.docDate)}</p>
+  <p class="en-by">ตรวจสอบโดย ${esc(st.office || 'งานวัดและประเมินผลการศึกษา กลุ่มบริหารวิชาการ')} ${esc(st.school)}</p>
   ${resultTable(r)}
-  <p class="en-cert">รับรองความถูกต้อง</p>
+  <p class="en-cert">ตรวจสอบและรับรองความถูกต้อง</p>
   ${coSignHTML(r, 'in-encl') || `<div class="en-sign"><p>ลงชื่อ ........................................................ ผู้ตรวจสอบ</p><p>(........................................................)</p><p>ตำแหน่ง ........................................................</p></div>`}`);
 }
 const docHTML = r => `<article class="letter" id="letter">${letterHTML(r)}</article>${listIndex(r) >= 0 ? `<article class="letter encl">${enclHTML(r)}</article>` : ''}${pp1CopyPages(r)}`;
@@ -1411,7 +1416,7 @@ function coSignHTML(r, where) {
   const sg = reqSign(r), seal = where === 'in-encl' && sealOn(r);
   const ks = coKeys(r).slice(); if (seal && !ks.includes('registrar')) ks.push('registrar');
   if (!ks.length) return '';
-  return `<div class="co-signs ${where}" style="grid-template-columns:repeat(${ks.length},minmax(0,1fr))">${ks.map(k => { const s = signOf(k); return `<div class="co-sign">${seal && k === 'registrar' ? `<img class="seal-img" src="${sealSrc()}" alt="ตราโรงเรียน">` : ''}<div class="co-sp">${sigImg(k, sg)}</div><p>(${esc(s.name || '................................')})</p><p>${esc(s.position || SIGN_ROLES[k].pos)}</p><p class="co-cap">${SIGN_ROLES[k].cap}</p></div>`; }).join('')}</div>`;
+  return `<div class="co-signs ${where}" style="grid-template-columns:repeat(${ks.length},minmax(0,1fr))">${ks.map(k => { const s = signOf(k); return `<div class="co-sign">${seal && k === 'registrar' ? `<img class="seal-img" src="${sealSrc()}" alt="ตราโรงเรียน">` : ''}<p class="co-line"><span>ลงชื่อ</span><span class="co-dots">${sigImg(k, sg)}</span><span>${SIGN_ROLES[k].cap}</span></p><p class="co-name">(${esc(s.name || '................................')})</p><p>${esc(s.position || SIGN_ROLES[k].pos)}</p></div>`; }).join('')}</div>`;
 }
 function signEditor(r) {
   const sg = reqSign(r), lock = r.status === 'replied', hasEncl = listIndex(r) >= 0;
@@ -1750,12 +1755,15 @@ async function runScan(filesArg, opts = {}) {
   let tabN = 0;
   for (const f of tabs) {
     try {
-      const ps = personsFromMatrix(await fileToMatrix(f));
+      const mx = await fileToMatrix(f);
+      if (D === U.draft && isRegisterSheet(mx)) { const x = importRegister(mx); U.regMsg = regMsg(x); U.rtab = 'register'; U.scan = { busy: false, kind: 'ok', msg: `ไฟล์ ${esc(f.name)} เป็นทะเบียนหนังสือรับ: ` + regMsg(x) }; continue; }
+      const ps = personsFromMatrix(mx);
       if (ps.length) { if (D === U.draft) ps.forEach(q => enrichPerson(q, false)); D.persons = [...D.persons.filter(q => String(q.fname || '').trim() || String(q.sid || '').trim()), ...ps]; tabN += ps.length; }
     } catch (e) { toast(`อ่านไฟล์ ${f.name} ไม่สำเร็จ: ` + e.message, 'err'); }
   }
   if (tabs.length) { addNames(tabs.map(f => f.name)); if (tabN) D.form = 1; }
   if (!files.length) {
+    if (U.rtab === 'register' && !tabN) { render(); return; }
     U.scan = { busy: false, kind: tabN ? 'ok' : 'warn', msg: tabN ? `ดึงรายชื่อจากไฟล์ ${tabs.map(f => esc(f.name)).join(', ')} แล้ว ${tabN} ราย · ตรวจทานก่อนบันทึก` : 'ไม่พบรายชื่อในไฟล์ ตรวจสอบว่าแถวแรกเป็นหัวตาราง (ชื่อ / สกุล / เลขประจำตัว)' };
     render(); return;
   }
@@ -1982,20 +1990,23 @@ const slaDays = () => Math.max(1, +S.settings.slaDays || 7);
 const isoDays = (a, b) => Math.max(0, Math.round((Date.parse(b) - Date.parse(a)) / DAY));
 function ageOf(r) {
   const start = r.recvDate || (r.submittedAt ? isoOf(new Date(r.submittedAt)) : todayISO());
-  const d = isoDays(start, r.sentDate || todayISO()), sla = slaDays();
-  return { d, sla, over: r.status !== 'replied' && d > sla, late: d - sla, left: sla - d };
+  const d = isoDays(start, r.sentDate || todayISO());
+  const due = typeof dueOf === 'function' ? dueOf(r) : '';
+  const sla = due ? Math.max(0, Math.round((Date.parse(due) - Date.parse(start)) / DAY)) : slaDays();
+  return { d, sla, due, over: r.status !== 'replied' && d > sla, late: d - sla, left: sla - d };
 }
 function ageChip(r) {
   if (r.status === 'replied') { const a = ageOf(r); return `<span class="age done">ใช้เวลา ${a.d} วัน</span>`; }
   const a = ageOf(r);
   const cls = a.over ? 'over' : a.left <= 2 ? 'near' : '';
   const txt = a.over ? `เกินกำหนด ${a.late} วัน` : a.d === 0 ? 'รับวันนี้' : `รับมา ${a.d} วัน`;
-  return `<span class="age ${cls}" title="กำหนดตอบภายใน ${a.sla} วันนับจากวันที่รับ">${txt}</span>`;
+  return `<span class="age ${cls}" title="${a.due ? 'กำหนดส่งตามหนังสือ ' + fmtLong(a.due) : 'กำหนดตอบภายใน ' + a.sla + ' วันนับจากวันที่รับ'}">${txt}</span>`;
 }
 /* ขั้นตอนถัดไปของหนังสือแต่ละฉบับ */
 function nextAction(r) {
   if (r.status === 'submitted') return { pri: 0, text: 'คำขอออนไลน์รอรับเข้าทะเบียน', btn: 'เปิดคำขอ', act: 'go', v: 'receive' };
   if (r.status === 'replied' || r.status === 'returned') return null;
+  if (!r.persons.length) return { pri: 2, text: 'ยังไม่มีรายชื่อผู้ขอตรวจสอบ — เพิ่มรายชื่อ', btn: 'เพิ่มรายชื่อ', act: 'editreq' };
   const pend = r.persons.filter(p => p.result === 'pending').length, inc = incompleteOf(r).length;
   if (pend) return { pri: 2, text: `ตรวจรายชื่อ เหลือ ${pend} จาก ${r.persons.length} ราย`, btn: 'ตรวจสอบ', act: 'openverify' };
   if (inc) return { pri: 2, text: `เติมเลข ปพ.1 / วันที่จบ ${inc} ราย ก่อนออกหนังสือ`, btn: 'เติมข้อมูล', act: 'openverify' };
@@ -2006,7 +2017,7 @@ function nextAction(r) {
 }
 function queueItems() {
   return S.requests.map(r => ({ r, a: nextAction(r), age: ageOf(r) })).filter(x => x.a)
-    .sort((x, y) => (y.age.over - x.age.over) || (x.a.pri - y.a.pri) || (y.age.d - x.age.d));
+    .sort((x, y) => (y.age.over - x.age.over) || (!!y.r.urgent - !!x.r.urgent) || (x.a.pri - y.a.pri) || (y.age.d - x.age.d));
 }
 function workQueue(limit = 8) {
   const q = queueItems();
@@ -2304,6 +2315,79 @@ function lwSec(k, n, title, sum, body, defOpen) {
   return `<details class="lw-sec" data-sec="${k}" ${open ? 'open' : ''}><summary><span class="lw-n">${n}</span><span class="lw-t"><b>${title}</b><span class="lw-sum">${sum}</span></span></summary><div class="lw-body">${body}</div></details>`;
 }
 
+/* ---------- นำเข้าทะเบียนหนังสือรับจาก Excel (หลายฉบับพร้อมกัน) ---------- */
+const REG_HEAD = ['ลำดับ', 'เลขรับ (รร.)', 'วันที่รับหนังสือ', 'เลขที่หนังสือ', 'เรียน (ตำแหน่ง สถาบัน)', 'ลงวันที่', 'ที่อยู่หน่วยงาน', 'อีเมล', 'ช่องทางส่งตอบกลับ', 'กำหนดส่ง', 'โทรศัพท์', 'โทรสาร'];
+const isRegisterSheet = rows => rows.slice(0, 10).some(r => { const h = r.map(c => String(c ?? '')); return h.some(c => /เลขที่หนังสือ/.test(c)) && h.some(c => /เลขรับ|วันที่รับ/.test(c)); });
+const blank = v => { const s = String(v ?? '').trim(); return /^[–—\-]+$|^ไม่ระบุ$/.test(s) ? '' : s; };
+const TITLE_RE = /^(รองผู้อำนวยการ|ผู้อำนวยการ|ผู้จัดการ|รองอธิการบดี|อธิการบดี|คณบดี|นายทะเบียน|ประธาน|ผู้บัญชาการ|ผู้บังคับการ|นายกเทศมนตรี|นายก|ปลัด|หัวหน้า|เลขาธิการ|กรรมการผู้จัดการ)/;
+/* "ผู้อำนวยการวิทยาลัยเทคนิคนครนายก" → หน่วยงาน = วิทยาลัยเทคนิคนครนายก, เรียน = ทั้งบรรทัด */
+function splitToLine(t) {
+  const s = String(t || '').trim().replace(/\s+/g, ' ');
+  const m = s.match(TITLE_RE);
+  return { to: s, agency: m ? s.slice(m[0].length).trim() : s };
+}
+/* กำหนดส่ง: วันที่ หรือ "ภายใน 15 วัน / 3 สัปดาห์ นับแต่วันรับ" */
+function parseDue(text, recvISO) {
+  const t = thaiDigits(String(text || ''));
+  const d = findDate(t); if (d) return d;
+  const base = recvISO ? new Date(recvISO + 'T00:00:00') : null; if (!base) return '';
+  let m = t.match(/(\d+)\s*วัน/); if (m) { base.setDate(base.getDate() + +m[1]); return isoOf(base); }
+  m = t.match(/(\d+)\s*สัปดาห์/); if (m) { base.setDate(base.getDate() + 7 * +m[1]); return isoOf(base); }
+  m = t.match(/(\d+)\s*เดือน/); if (m) { base.setMonth(base.getMonth() + +m[1]); return isoOf(base); }
+  return '';
+}
+const dueOf = r => r.dueDate || (r.dueText ? parseDue(r.dueText, r.recvDate) : '');
+const docKey = s => thaiDigits(String(s || '')).replace(/\(.*?\)/g, '').replace(/[\s.]/g, '').toLowerCase();
+function importRegister(rows) {
+  const hi = rows.findIndex(r => { const h = r.map(c => String(c ?? '')); return h.some(c => /เลขที่หนังสือ/.test(c)) && h.some(c => /เลขรับ|วันที่รับ/.test(c)); });
+  if (hi < 0) throw new Error('ไม่พบหัวตาราง "เลขที่หนังสือ" และ "เลขรับ/วันที่รับ" ในไฟล์');
+  const h = rows[hi].map(c => String(c ?? '').replace(/\s+/g, ' ').trim());
+  const col = re => h.findIndex(x => re.test(x));
+  const C = { reg: col(/เลขรับ|เลขทะเบียนรับ/), recv: col(/วันที่รับ/), doc: col(/เลขที่หนังสือ/), to: col(/^เรียน|ตำแหน่ง/), agency: col(/^หน่วยงาน|สถาบัน(?!.*ตำแหน่ง)/), date: col(/ลงวันที่|หนังสือลงวันที่/), addr: col(/ที่อยู่/), email: col(/อีเมล|e-?mail/i), how: col(/ช่องทาง/), due: col(/กำหนด/), phone: col(/โทรศัพท์|^โทร\.?$/), fax: col(/โทรสาร|แฟกซ์|fax/i) };
+  if (C.agency === C.to) C.agency = -1;
+  const cell = (r, i) => i >= 0 ? blank(r[i]) : '';
+  /* แถวซ้ำในไฟล์: ยึดแถวล่าสุด (อยู่ล่างสุด) */
+  const parsed = new Map();
+  let skipped = 0, dupInFile = 0;
+  rows.slice(hi + 1).forEach(r => {
+    const docNo = cell(r, C.doc), regRaw = cell(r, C.reg);
+    if (!docNo && !regRaw) { if (r.some(c => String(c ?? '').trim())) skipped++; return; }
+    const recvDate = parseDateAny(cell(r, C.recv)) || '';
+    const sp = splitToLine(cell(r, C.to));
+    const agency = cell(r, C.agency) || sp.agency;
+    if (!agency) { skipped++; return; }
+    let regNo = thaiDigits(regRaw).replace(/\s/g, '');
+    if (regNo && !/\//.test(regNo) && recvDate) regNo += '/' + (+recvDate.slice(0, 4) + 543);
+    const o = { regNo, recvDate: recvDate || todayISO(), docNo, docDate: parseDateAny(cell(r, C.date)) || '', agency, to: sp.to || '', aaddr: cell(r, C.addr), email: cell(r, C.email).toLowerCase(), aphone: cell(r, C.phone), afax: cell(r, C.fax), replyHow: cell(r, C.how), dueText: cell(r, C.due) };
+    o.dueDate = parseDue(o.dueText, o.recvDate);
+    o.urgent = /ด่วนที่สุด|ด่วนมาก|ด่วน/.test(docNo) ? (docNo.match(/ด่วนที่สุด|ด่วนมาก|ด่วน/) || [''])[0] : '';
+    const key = docKey(docNo) ? 'd:' + docKey(docNo) + '|' + agencyKey(agency) : 'r:' + regNo;
+    if (parsed.has(key)) dupInFile++;
+    parsed.set(key, o);
+  });
+  let added = 0, updated = 0;
+  parsed.forEach((o, key) => {
+    const ex = S.requests.find(x => (docKey(o.docNo) && docKey(x.docNo) === docKey(o.docNo) && agencyKey(x.agency) === agencyKey(o.agency)) || (!docKey(o.docNo) && o.regNo && x.regNo === o.regNo));
+    if (ex) {
+      /* หนังสือซ้ำ: ยึดข้อมูลล่าสุด (รายชื่อและผลการตรวจสอบเดิมคงไว้) */
+      Object.entries(o).forEach(([k, v]) => { if (v !== '' || ['email', 'aphone', 'afax', 'replyHow', 'dueText', 'dueDate'].includes(k)) ex[k] = v; });
+      addTL(ex, 'ปรับข้อมูลรับหนังสือจากไฟล์ทะเบียนหนังสือรับ'); updated++;
+    } else {
+      const r = Object.assign({ id: uid('r'), form: 1, file: '', persons: [], status: 'received', outNo: '', outDate: '', sentDate: '', timeline: [] }, o);
+      addTL(r, `รับหนังสือ เลขทะเบียนรับ ${r.regNo || '-'}`, true);
+      S.requests.push(r); added++;
+    }
+  });
+  save();
+  return { total: parsed.size, added, updated, dupInFile, skipped };
+}
+const regMsg = x => `นำเข้าหนังสือรับทั้งหมด <b>${x.total}</b> ฉบับ · เพิ่มใหม่ ${x.added} · อัปเดตฉบับเดิม ${x.updated}${x.dupInFile ? ` · แถวซ้ำในไฟล์ ${x.dupInFile} (ใช้แถวล่าสุด)` : ''}${x.skipped ? ` · ข้ามแถวว่าง/หมายเหตุ ${x.skipped} แถว` : ''}<br>ขั้นต่อไป: เปิดหนังสือแต่ละฉบับแล้วกด "แก้ไขข้อมูลรับหนังสือ" เพื่อเพิ่มรายชื่อผู้ขอตรวจสอบ (เพิ่มไฟล์บัญชีรายชื่อให้ระบบอ่านได้)`;
+function regImportCard() {
+  return `<div class="card"><div class="between wrap"><div><h2 style="margin:0">📁 นำเข้าทะเบียนหนังสือรับจากไฟล์ Excel</h2><p class="muted small" style="margin:4px 0 0">เพิ่มหนังสือรับหลายฉบับพร้อมกัน · คอลัมน์: เลขรับ, วันที่รับหนังสือ, เลขที่หนังสือ, เรียน (ตำแหน่ง สถาบัน), ลงวันที่, ที่อยู่หน่วยงาน, อีเมล, ช่องทางส่งตอบกลับ, กำหนดส่ง, โทรศัพท์ · หนังสือซ้ำ (เลขที่หนังสือและหน่วยงานเดียวกัน) ยึดข้อมูลล่าสุด</p></div><button type="button" class="btn btn-outline sm" data-act="regtemplate">ดาวน์โหลดแบบฟอร์มเปล่า</button></div>
+  <div class="row" style="margin-top:12px"><label class="btn btn-primary file-btn">📁 เลือกไฟล์ทะเบียนหนังสือรับ (.xlsx / .csv)<input type="file" class="vh" accept=".xlsx,.xls,.csv" data-ch="regimport"></label></div>
+  <div id="reg-msg" style="margin-top:10px">${U.regMsg ? `<p class="notice ok" style="margin:0">${U.regMsg}</p>` : ''}</div></div>`;
+}
+
 const VIEW_FN = { dash: vDash, receive: vReceive, outgoing: vOutgoing, verify: vVerify, grads: vGrads, fees: vFees, track: vTrack, reports: vReports, settings: vSettings };
 function topBar() {
   if (U.mode === 'staff' && U.staffAuth) return `${CLOUD ? syncChip() : ''}<button type="button" class="seg-search" data-act="gsopen" aria-label="ค้นหาทั้งระบบ (Ctrl K)">${ic('search')} ค้นหา <kbd>Ctrl K</kbd></button><span class="who">🧑‍💼 ${esc(CLOUD && U.me ? U.me.email : 'เจ้าหน้าที่')}</span><button type="button" data-act="home">หน้าแรก</button><button type="button" data-act="logout">ออกจากระบบ</button>`;
@@ -2437,7 +2521,7 @@ const ACT = {
   editreq: b => {
     const r = getReq(b.dataset.id); if (!r) return;
     if (r.status === 'replied') return toast('หนังสือนี้ส่งหนังสือตอบแล้ว แก้ไขข้อมูลรับไม่ได้', 'err');
-    U.draft = { editingId: r.id, regno: r.regNo, date: r.recvDate, email: r.email || '', agency: r.agency || '', to: r.to || '', docno: r.docNo || '', docdate: r.docDate || '', aaddr: r.aaddr || '', aphone: r.aphone || '', form: r.form, file: r.file || '',
+    U.draft = { editingId: r.id, regno: r.regNo, date: r.recvDate, email: r.email || '', agency: r.agency || '', to: r.to || '', docno: r.docNo || '', docdate: r.docDate || '', aaddr: r.aaddr || '', aphone: r.aphone || '', due: r.dueText || '', how: r.replyHow || '', form: r.form, file: r.file || '',
       persons: r.persons.map(p => ({ pid: p.id, sid: p.sid || '', cid: p.cid || '', prefix: p.prefix || '', fname: p.fname || '', lname: p.lname || '', gradText: p.gradText || (p.gradDate ? fmtBE(p.gradDate) : ''), level: p.level || '', dbId: p.matchedId || null })) };
     if (!U.draft.persons.length) U.draft.persons.push(blankP());
     U.scan = null; U.rtab = 'form'; go('receive');
@@ -2532,6 +2616,13 @@ const ACT = {
       U.stuMsg = `<p class="notice ${res.noPP1.length ? 'warn' : 'ok'}" style="margin:0">นำเข้า ${esc(f.name)} สำเร็จ · เพิ่มใหม่ ${res.added} · อัปเดต ${res.updated} ราย${res.fees ? ` · มียอดค้างชำระ ${res.fees} ราย (สร้างรายการในหน้าค่าบำรุงแล้ว)` : ''}${res.skipped ? ` · ข้าม ${res.skipped} แถวที่ไม่มีรหัสหรือชื่อ` : ''}${res.noPP1.length ? `<br>ไม่มีเลข ปพ.1: ${res.noPP1.slice(0, 10).map(esc).join(', ')}${res.noPP1.length > 10 ? ' …' : ''}` : ''}</p>`;
     } catch (e) { U.stuMsg = `<p class="notice danger" style="margin:0">${esc(e.message || e)}</p>`; }
     render();
+  },
+  regtemplate: async () => {
+    try {
+      if (typeof XLSX === 'undefined') throw new Error('ยังโหลดตัวสร้างไฟล์ Excel ไม่สำเร็จ');
+      const ws = XLSX.utils.aoa_to_sheet([REG_HEAD]); const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'หนังสือขอตรวจสอบวุฒิ');
+      await saveFile(new Blob([XLSX.write(wb, { bookType: 'xlsx', type: 'array' })], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), 'แบบฟอร์มทะเบียนหนังสือรับ.xlsx');
+    } catch (e) { if (!e || e.code !== 'declined') toast('ดาวน์โหลดไม่สำเร็จ: ' + (e.message || e), 'err'); }
   },
   stutemplate: async () => {
     try {
@@ -2736,6 +2827,11 @@ const CH = {
     }
     render();
   },
+  regimport: async el => {
+    const f = el.files[0]; if (!f) return;
+    try { const x = importRegister(await fileToMatrix(f)); U.regMsg = regMsg(x); U.rtab = 'register'; render(); toast(`นำเข้าหนังสือรับ ${x.total} ฉบับแล้ว`); }
+    catch (e) { toast('นำเข้าไม่สำเร็จ: ' + e.message, 'err'); }
+  },
   scanpick: el => { if (el.files.length && !(U.scan && U.scan.busy)) runScan([...el.files]); },
   dfile: async el => {
     const f = el.files[0]; if (!f) return;
@@ -2795,8 +2891,9 @@ const FORMS = {
     if (regTaken(reg, d.editingId)) return toast(`เลขทะเบียนรับ ${reg} ถูกใช้แล้ว`, 'err');
     if (old) {
       const changed = [];
-      const F = { regNo: [reg, 'เลขทะเบียนรับ'], recvDate: [d.date || old.recvDate, 'วันที่รับ'], agency: [d.agency.trim(), 'หน่วยงาน'], to: [d.to.trim(), 'เรียน'], docNo: [d.docno.trim(), 'เลขที่หนังสือ'], docDate: [d.docdate, 'ลงวันที่'], email: [d.email.trim().toLowerCase(), 'E-mail'], aaddr: [(d.aaddr || '').trim(), 'ที่อยู่'], aphone: [(d.aphone || '').trim(), 'โทรศัพท์'], form: [d.form, 'แบบหนังสือ'] };
+      const F = { regNo: [reg, 'เลขทะเบียนรับ'], recvDate: [d.date || old.recvDate, 'วันที่รับ'], agency: [d.agency.trim(), 'หน่วยงาน'], to: [d.to.trim(), 'เรียน'], docNo: [d.docno.trim(), 'เลขที่หนังสือ'], docDate: [d.docdate, 'ลงวันที่'], email: [d.email.trim().toLowerCase(), 'E-mail'], aaddr: [(d.aaddr || '').trim(), 'ที่อยู่'], aphone: [(d.aphone || '').trim(), 'โทรศัพท์'], dueText: [(d.due || '').trim(), 'กำหนดส่ง'], replyHow: [(d.how || '').trim(), 'ช่องทางตอบกลับ'], form: [d.form, 'แบบหนังสือ'] };
       Object.entries(F).forEach(([k, [v, label]]) => { if (String(old[k] ?? '') !== String(v ?? '')) { old[k] = v; changed.push(label); } });
+      old.dueDate = parseDue(old.dueText, old.recvDate);
       if (d.form == 1 && d.file) old.file = d.file; else if (d.form != 1 && !old.source) old.file = '';
       const pc = persons.length !== old.persons.length || persons.some((p, i) => p !== old.persons[i] && !(old.persons[i] && same(old.persons[i], p) && p.result === old.persons[i].result));
       if (pc) changed.push('รายชื่อผู้ขอตรวจสอบ');
@@ -2808,7 +2905,7 @@ const FORMS = {
       U.draft = newDraft(); U.reqId = old.id; go('verify'); toast(changed.length ? `บันทึกการแก้ไขหนังสือเลขรับ ${reg} แล้ว` : 'ไม่มีข้อมูลที่เปลี่ยนแปลง');
       return;
     }
-    const r = { id: uid('r'), regNo: reg, recvDate: d.date || todayISO(), agency: d.agency.trim(), to: d.to.trim(), docNo: d.docno.trim(), docDate: d.docdate, email: d.email.trim().toLowerCase(), aaddr: (d.aaddr || '').trim(), aphone: (d.aphone || '').trim(), form: d.form, file: d.form == 1 ? d.file : '', persons, status: 'received', outNo: '', outDate: '', sentDate: '', timeline: [] };
+    const r = { id: uid('r'), regNo: reg, recvDate: d.date || todayISO(), agency: d.agency.trim(), to: d.to.trim(), docNo: d.docno.trim(), docDate: d.docdate, email: d.email.trim().toLowerCase(), aaddr: (d.aaddr || '').trim(), aphone: (d.aphone || '').trim(), dueText: (d.due || '').trim(), replyHow: (d.how || '').trim(), dueDate: parseDue(d.due, d.date || todayISO()), form: d.form, file: d.form == 1 ? d.file : '', persons, status: 'received', outNo: '', outDate: '', sentDate: '', timeline: [] };
     addTL(r, `รับหนังสือ เลขทะเบียนรับ ${reg}`, true);
     S.requests.push(r); save();
     U.draft = newDraft(); U.reqId = r.id; go('verify'); toast(`บันทึกรับหนังสือ ${reg} แล้ว`);
