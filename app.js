@@ -1,4 +1,6 @@
 /* WNM-Educational Measurement and Evaluation Section Ver.1 — ระบบรับ–ส่งและตรวจสอบวุฒิการศึกษา (Prototype, เก็บข้อมูลในเบราว์เซอร์) */
+/* รุ่นของระบบ — release.py ปรับให้อัตโนมัติทุกครั้งที่ปรับปรุง ห้ามแก้ด้วยมือ */
+const APP_VERSION = { no: 'Ver.6', at: '8/10/2569 17:00' };
 'use strict';
 
 /* ---------- ค่าคงที่ ---------- */
@@ -28,12 +30,18 @@ const STATUS = {
 };
 const STEPS = ['ยื่นคำขอ', 'รับหนังสือ', 'กำลังตรวจสอบ', 'ตรวจสอบเสร็จ', 'ส่งหนังสือตอบ'];
 const VIEWS = [
-  ['dash', '📊 Dashboard'],
-  ['receive', '📥 รับหนังสือ', 1], ['verify', '🔍 ตรวจสอบ', 2], ['outgoing', '📤 หนังสือส่งออก', 3], ['track', '🧭 ติดตามสถานะ'],
-  ['grads', '🎓 ฐานข้อมูลผู้สำเร็จการศึกษา'], ['fees', '💳 ค่าบำรุงการศึกษา'],
-  ['reports', '📈 รายงาน'], ['settings', '⚙️ ตั้งค่า']
+  ['dash', '📊 หน้าหลัก'],
+  ['receive', '📥 รับหนังสือ', 1], ['verify', '🔍 ตรวจสอบ', 2], ['outgoing', '📤 หนังสือส่งออก', 3],
+  ['grads', '🎓 ฐานข้อมูล'], ['track', '🧭 ติดตาม/รายงาน'], ['settings', '⚙️ ตั้งค่า']
 ];
-const NAV_SEP_BEFORE = ['receive', 'grads', 'reports'];
+const NAV_SEP_BEFORE = ['receive', 'grads'];
+/* เมนูย่อยที่รวมไว้ใต้เมนูหลักเดียวกัน */
+const NAV_GROUP = { fees: 'grads', reports: 'track' };
+const SUBNAV = { grads: [['grads', '🎓 ผู้สำเร็จการศึกษา'], ['fees', '💳 ค่าบำรุงการศึกษา']], track: [['track', '🧭 ติดตามสถานะหนังสือ'], ['reports', '📈 สรุปรายงาน']] };
+function subNav(view) {
+  const g = NAV_GROUP[view] || view, items = SUBNAV[g]; if (!items) return '';
+  return `<div class="tabs subnav" role="tablist">${items.map(([v, t]) => `<button type="button" role="tab" class="tab ${view === v ? 'on' : ''}" aria-selected="${view === v}" data-act="go" data-v="${v}">${t}</button>`).join('')}</div>`;
+}
 
 let inFrame = true;
 try { inFrame = window.self !== window.top; } catch (e) { inFrame = true; }
@@ -310,6 +318,7 @@ if (CLOUD) setInterval(cloudPoll, 45000);
 let storageOK = true;
 function load() { try { const t = localStorage.getItem(KEY); return t ? JSON.parse(t) : null; } catch (e) { storageOK = false; return null; } }
 function save() {
+  try { if (typeof linkFees === 'function' && typeof S !== 'undefined' && S) linkFees(); } catch (e) {}
   if (CLOUD) {
     if (typeof U === 'undefined') return;
     if (U.mode === 'staff' && U.staffAuth) cloudQueueSave();
@@ -322,7 +331,7 @@ function save() {
 function defaultSettings() {
   return {
     school: 'โรงเรียนวรราชาทินัดดามาตุวิทยา',
-    address: '59 หมู่ 2 ตำบลคลองพระอุดม\nอำเภอลาดหลุมแก้ว จังหวัดปทุมธานี 12140',
+    address: 'ตำบลคลองพระอุดม อำเภอลาดหลุมแก้ว\nจังหวัดปทุมธานี 12140',
     docPrefix: 'ศธ 04314.09/',
     director: 'นายธัชวรรธน์ เจริญภิรมย์บวร',
     directorTitle: 'ผู้อำนวยการโรงเรียนวรราชาทินัดดามาตุวิทยา',
@@ -404,6 +413,8 @@ function migrateState() {
   (S.requests || []).forEach(r => { if (r.outNo && r.outYearOn === undefined && /^\d+\/\d{4}$/.test(r.outNo)) r.outYearOn = true; });
   const st = S.settings, d = defaultSettings();
   if (!st.address || st.address === 'จังหวัดนนทบุรี') st.address = d.address;
+  if (!st.enclAutoV1) { st.enclAutoV1 = true; (S.requests || []).forEach(r => { if (r.form != 1 && r.status !== 'replied' && r.enclAuto === undefined && (!Array.isArray(r.enclosures) || !r.enclosures.some(e => listKind(e)))) r.enclAuto = true; }); }
+  if (!st.addrV2) { st.addrV2 = true; if (/^\s*59 หมู่ 2 ตำบลคลองพระอุดม\s*\n?\s*อำเภอลาดหลุมแก้ว จังหวัดปทุมธานี 12140\s*$/.test(st.address)) st.address = d.address; }
   if (!st.phone) st.phone = d.phone;
   if (!st.email || st.email === 'web@wnm.ac.th') st.email = d.email;
   if (!st.docPrefix || st.docPrefix === 'ศธ 04xxx.xx/') st.docPrefix = d.docPrefix;
@@ -483,9 +494,46 @@ function compareWith(p, s) {
   if (p.level && s.level && normLevel(p.level) !== s.level) issues.push(`ระดับชั้นไม่ตรง (ฐานข้อมูล ${s.level})`);
   return issues.length ? { result: 'mismatch', auto: issues.join(' · ') } : { result: 'found', auto: 'ข้อมูลตรงกับฐานข้อมูล' };
 }
+/* ผลที่ยังต้องให้เจ้าหน้าที่ยืนยัน: ยังไม่มีผล หรือผลตรวจอัตโนมัติที่ยังไม่ยืนยัน */
+const unconf = p => p.result === 'pending' || p.confirmed === false;
+const dbFromYear = () => parseInt(S.settings.dbFromYear, 10) || 2562;
+function gradYearBE(p) {
+  if (p.gradDate) return +p.gradDate.slice(0, 4) + 543;
+  const t = thaiDigits(p.gradText || ''), m = t.match(/25\d\d/); if (m) return +m[0];
+  const m2 = t.match(/(?:19|20)\d\d/); if (m2) return +m2[0] + 543;
+  const m3 = t.match(/(?:^|\D)(\d\d)$/); return m3 ? 2500 + +m3[1] : 0;
+}
+/* ตรวจเทียบฐานข้อมูลอัตโนมัติ 1 ราย · ผลรอเจ้าหน้าที่ยืนยัน · จบก่อนปีที่มีในฐานข้อมูล = ให้เจ้าหน้าที่ตรวจเอง */
+function autoCheck(p) {
+  if (p.manual) return false;
+  const m = matchPerson(p), y = gradYearBE(p);
+  m.needManual = false;
+  if (m.result === 'notfound' && y && y < dbFromYear()) Object.assign(m, { result: 'pending', needManual: true, auto: `จบปี พ.ศ. ${y} ก่อนปีที่มีในฐานข้อมูล (ตั้งแต่ ${dbFromYear()}) — เจ้าหน้าที่ตรวจสอบเองจากหลักฐานเดิม เช่น ปพ.3 / สมุดทะเบียนนักเรียน` });
+  else if (m.result === 'notfound') m.auto += ' — เจ้าหน้าที่ตรวจสอบเองได้';
+  Object.assign(p, m, { confirmed: false });
+  return true;
+}
+function autoCheckReq(r, quiet) {
+  let n = 0; r.persons.forEach(p => { if (autoCheck(p)) n++; });
+  if (n && !quiet) addTL(r, `ระบบตรวจเทียบฐานข้อมูลอัตโนมัติ ${n} ราย รอเจ้าหน้าที่ยืนยันผล`, false);
+  refreshStatus(r); return n;
+}
+/* คำขอออนไลน์จากหน่วยงาน: ระบบรับเข้าทะเบียนให้ทันที เว้นเลขทะเบียนรับให้เจ้าหน้าที่กรอกจากงานธุรการ */
+function autoReceive() {
+  const list = S.requests.filter(r => r.status === 'submitted');
+  list.forEach(r => {
+    r.status = 'received'; r.regNo = r.regNo || ''; r.recvDate = isoOf(new Date(r.submittedAt || Date.now())); r.autoRecv = true;
+    addTL(r, 'โรงเรียนรับหนังสือเข้าระบบแล้ว (รับอัตโนมัติ)', true);
+    autoCheckReq(r);
+  });
+  if (list.length) save();
+  return list.length;
+}
+const waitReg = () => REQS().filter(r => !r.regNo && r.status !== 'replied').sort((a, b) => (a.submittedAt || 0) - (b.submittedAt || 0));
+const regLbl = r => r.regNo ? esc(r.regNo) : '<span class="badge warn">รอเลขรับ</span>';
 function refreshStatus(r) {
   if (r.status === 'replied' || !registered(r) || !r.persons.length) return;
-  const pend = r.persons.filter(p => p.result === 'pending').length;
+  const pend = r.persons.filter(unconf).length;
   const ns = pend === 0 ? 'done' : (pend < r.persons.length ? 'checking' : 'received');
   if (ns !== r.status) {
     if (ns === 'checking') addTL(r, 'เริ่มตรวจสอบรายชื่อ', true);
@@ -780,15 +828,19 @@ function vAgency() {
 }
 
 /* ---------- กล่องคำขอออนไลน์ (เจ้าหน้าที่) ---------- */
+function regInputs(r, k) {
+  return `<div class="row reg-row"><div><label for="${k}-reg-${r.id}">เลขทะเบียนรับ (งานธุรการ)</label><input id="${k}-reg-${r.id}" placeholder="เช่น ${esc(nextRegNo() || '1234/' + beYear())}" style="width:170px"></div><div><label for="${k}-date-${r.id}">วันที่รับ</label><input type="date" id="${k}-date-${r.id}" value="${esc(r.recvDate || todayISO())}"></div><button type="button" class="btn btn-green sm" data-act="savereg" data-k="${k}" data-id="${r.id}">บันทึกเลขรับ</button></div>`;
+}
 function onlineInbox() {
-  const list = inboxReqs(), returned = S.requests.filter(r => r.status === 'returned').length;
-  return `<div class="card inbox"><div class="between wrap"><h2 style="margin:0">📨 คำขอออนไลน์จากหน่วยงานภายนอก ${list.length ? `<span class="badge danger">รอรับ ${list.length}</span>` : ''}</h2>${returned ? `<span class="muted small">ส่งกลับให้แก้ไข ${returned} รายการ (รอหน่วยงานแก้ไข)</span>` : ''}</div>
-  ${list.length ? list.map(r => `<div class="inbox-item"><div class="between wrap"><div><b>${esc(r.agency)}</b><div class="sub">หนังสือที่ ${esc(r.docNo)} ลงวันที่ ${fmtLong(r.docDate)} · ส่งเมื่อ ${fmtDT(r.submittedAt)} · ${r.form == 1 ? 'แนบใบรายชื่อ' : 'ระบุรายชื่อ'} · ${esc(r.email)}</div></div>
-    <div class="row"><button type="button" class="btn btn-green sm" data-act="acceptopen" data-id="${r.id}">✅ รับหนังสือ</button><button type="button" class="btn btn-outline sm" data-act="retopen" data-id="${r.id}">↩️ ส่งกลับให้แก้ไข</button></div></div>
+  const list = waitReg(), returned = S.requests.filter(r => r.status === 'returned').length;
+  return `<div class="card inbox"><div class="between wrap"><h2 style="margin:0">📨 หนังสือจากหน่วยงานภายนอก (รับอัตโนมัติ) ${list.length ? `<span class="badge danger">รอลงเลขรับ ${list.length}</span>` : ''}</h2>${returned ? `<span class="muted small">ส่งกลับให้แก้ไข ${returned} รายการ (รอหน่วยงานแก้ไข)</span>` : ''}</div>
+  <p class="muted small" style="margin:6px 0 0">คำขอที่หน่วยงานส่งผ่านระบบ ระบบรับเข้าทะเบียนและตรวจเทียบฐานข้อมูลให้ทันที เจ้าหน้าที่เพียงกรอกเลขทะเบียนรับ/วันที่รับจากงานธุรการ แล้วตรวจทานและยืนยันผล</p>
+  ${list.length ? list.map(r => `<div class="inbox-item"><div class="between wrap"><div><b>${esc(r.agency)}</b><div class="sub">หนังสือที่ ${esc(r.docNo)} ลงวันที่ ${fmtLong(r.docDate)}${r.submittedAt ? ` · ส่งเมื่อ ${fmtDT(r.submittedAt)}` : ''} · ${r.form == 1 ? 'แนบใบรายชื่อ' : 'ระบุรายชื่อ'}${r.email ? ' · ' + esc(r.email) : ''}</div></div>
+    <div class="row">${resultSummary(r)}<button type="button" class="btn btn-blue sm" data-act="openverify" data-id="${r.id}">🔍 ตรวจทาน/ยืนยันผล</button><button type="button" class="btn btn-outline sm" data-act="retopen" data-id="${r.id}">↩️ ส่งกลับให้แก้ไข</button></div></div>
     <p class="small" style="margin:8px 0 0">${r.persons.map(p => esc(pName(p)) + (p.sid ? ` (${esc(p.sid)})` : '')).join(' · ')}</p>
     ${attChips(r)}
-    ${U.acceptId === r.id ? `<div class="row" style="margin-top:8px"><label for="acc-reg" style="margin:0">เลขทะเบียนรับ (จากงานธุรการ)</label><input id="acc-reg" placeholder="เช่น 1234/${beYear()}" style="flex:1;min-width:180px;max-width:260px"><button type="button" class="btn btn-green sm" data-act="acceptreq" data-id="${r.id}">ยืนยันรับหนังสือ</button></div>` : ''}
-    ${U.returnId === r.id ? `<div class="row" style="margin-top:8px"><input id="ret-reason" placeholder="เหตุผล เช่น ไม่ได้แนบหนังสือขอตรวจสอบ" style="flex:1;min-width:220px"><button type="button" class="btn btn-red sm" data-act="returnreq" data-id="${r.id}">ยืนยันส่งกลับ</button></div>` : ''}</div>`).join('') : '<p class="muted" style="margin:8px 0 0">ยังไม่มีคำขอใหม่ คำขอที่หน่วยงานส่งผ่านระบบจะแสดงที่นี่ให้กดรับหนังสือ</p>'}</div>`;
+    ${regInputs(r, 'in')}
+    ${U.returnId === r.id ? `<div class="row" style="margin-top:8px"><input id="ret-reason" placeholder="เหตุผล เช่น ไม่ได้แนบหนังสือขอตรวจสอบ" style="flex:1;min-width:220px"><button type="button" class="btn btn-red sm" data-act="returnreq" data-id="${r.id}">ยืนยันส่งกลับ</button></div>` : ''}</div>`).join('') : '<p class="muted" style="margin:8px 0 0">ไม่มีหนังสือรอลงเลขรับ คำขอที่หน่วยงานส่งผ่านระบบจะถูกรับเข้าอัตโนมัติและแสดงที่นี่</p>'}</div>`;
 }
 
 /* ---------- ส่วนประกอบ ---------- */
@@ -805,12 +857,14 @@ function resultSummary(r) {
   if (c('mismatch')) parts.push(`<span class="badge info">ไม่ตรง ${c('mismatch')}</span>`);
   if (c('notfound')) parts.push(`<span class="badge danger">ไม่พบ ${c('notfound')}</span>`);
   if (c('pending')) parts.push(`<span class="badge warn">รอ ${c('pending')}</span>`);
+  const uc = r.persons.filter(p => p.confirmed === false && p.result !== 'pending').length;
+  if (uc && r.status !== 'replied') parts.push(`<span class="badge neutral">รอยืนยัน ${uc}</span>`);
   return `<div class="row" style="gap:4px">${parts.join('')}</div>`;
 }
 function reqTable(list, ctx) {
   if (!list.length) return `<p class="muted">ยังไม่มีหนังสือ</p>`;
   return `<div class="tablewrap"><table><thead><tr><th>เลขรับ</th><th>วันที่รับ</th><th>หน่วยงาน / เลขที่หนังสือ</th><th>แบบ</th><th class="num">ราย</th><th>สถานะ</th><th></th></tr></thead><tbody>
-  ${list.map(r => `<tr><td><b>${esc(r.regNo)}</b></td><td>${fmtBE(r.recvDate)}</td><td>${esc(r.agency)}<div class="sub">ที่ ${esc(r.docNo)}</div></td><td>${r.form == 1 ? 'แบบที่ 1' : 'แบบที่ 2'}</td><td class="num">${r.persons.length}</td><td>${statusBadge(r)}${r.urgent ? ` <span class="badge danger">${esc(r.urgent)}</span>` : ''}<div style="margin-top:4px">${ageChip(r)}</div></td>
+  ${list.map(r => `<tr><td><b>${regLbl(r)}</b></td><td>${fmtBE(r.recvDate)}</td><td>${esc(r.agency)}<div class="sub">ที่ ${esc(r.docNo)}</div></td><td>${r.form == 1 ? 'แบบที่ 1' : 'แบบที่ 2'}</td><td class="num">${r.persons.length}</td><td>${statusBadge(r)}${r.urgent ? ` <span class="badge danger">${esc(r.urgent)}</span>` : ''}<div style="margin-top:4px">${ageChip(r)}</div></td>
   <td class="tdact"><button type="button" class="btn btn-outline sm" data-act="openverify" data-id="${r.id}">ตรวจสอบ</button>${ctx === 'dash' ? '' : ` <button type="button" class="btn btn-outline sm" data-act="opentrack" data-id="${r.id}">ติดตาม</button>`}${ctx === 'receive' && r.status !== 'replied' ? ` <button type="button" class="btn btn-outline sm" data-act="editreq" data-id="${r.id}">แก้ไข</button>` : ''}${ctx === 'receive' ? ` <button type="button" class="btn btn-outline sm" data-act="delreq" data-id="${r.id}">ลบ</button>` : ''}</td></tr>`).join('')}
   </tbody></table></div>`;
 }
@@ -827,7 +881,7 @@ function stepper(r) {
 
 /* ---------- หน้าจอเจ้าหน้าที่ ---------- */
 function vDash() {
-  const R = REQS(), open = R.filter(r => r.status !== 'replied'), inbox = inboxReqs().length;
+  const R = REQS(), open = R.filter(r => r.status !== 'replied'), inbox = waitReg().length;
   const persons = R.flatMap(r => r.persons), cnt = k => persons.filter(p => p.result === k).length, max = Math.max(1, persons.length);
   const debtors = new Set(S.fees.filter(f => f.amount - f.paid > 0).map(f => f.studentId)).size;
   const over = open.filter(r => ageOf(r).over).length;
@@ -849,13 +903,13 @@ function vDash() {
 }
 
 function vReceive() {
-  const d = U.draft, inbox = inboxReqs().length, nReg = REQS().length;
+  const d = U.draft, inbox = waitReg().length, nReg = REQS().length;
   const opt = v => ['', 'ม.3', 'ม.6'].map(o => `<option value="${o}" ${v === o ? 'selected' : ''}>${o || '–'}</option>`).join('');
   if (d.editingId) U.rtab = 'form';
   return `<div class="pagehead"><h1>รับหนังสือขอตรวจสอบวุฒิ</h1><p class="muted">ขั้นตอนที่ 1 · ลงทะเบียนรับหนังสือจากหน่วยงาน แล้วระบุรายชื่อผู้ที่ขอให้ตรวจสอบ</p></div>
-  ${tabsBar('rtab', [['form', d.editingId ? '✏️ แก้ไขข้อมูลรับหนังสือ' : '📝 บันทึกรับหนังสือ'], ['inbox', '📨 คำขอออนไลน์', inbox ? { n: inbox, cls: 'hot' } : null], ['register', '📥 ทะเบียนหนังสือรับ', { n: nReg }]])}
+  ${tabsBar('rtab', [['form', d.editingId ? '✏️ แก้ไขข้อมูลรับหนังสือ' : '📝 บันทึกรับหนังสือ'], ['inbox', '📨 คำขอออนไลน์ (รอลงเลขรับ)', inbox ? { n: inbox, cls: 'hot' } : null], ['register', '📥 ทะเบียนหนังสือรับ', { n: nReg }]])}
   <div class="stack" ${tp('rtab', 'form', 'form')}>
-  ${inbox && !d.editingId ? `<div class="notice warn row" style="margin:0">📨 มีคำขอออนไลน์จากหน่วยงานรอรับ ${inbox} รายการ <button type="button" class="btn btn-outline sm" data-act="tab" data-k="rtab" data-v="inbox">ดูคำขอ</button></div>` : ''}
+  ${inbox && !d.editingId ? `<div class="notice warn row" style="margin:0">📨 มีหนังสือจากระบบออนไลน์ (รับอัตโนมัติแล้ว) รอลงเลขทะเบียนรับ ${inbox} รายการ <button type="button" class="btn btn-outline sm" data-act="tab" data-k="rtab" data-v="inbox">ดูคำขอ</button></div>` : ''}
   ${scanCard('staff')}
   <form class="card form ${d.editingId ? 'editing' : ''}" data-form="receive" id="rc-form" novalidate>
     ${d.editingId ? `<div class="notice warn between wrap" style="margin:0"><span>✏️ กำลังแก้ไขข้อมูลรับหนังสือ เลขรับ <b>${esc((getReq(d.editingId) || {}).regNo || '')}</b> · ผลการตรวจสอบของรายที่ไม่เปลี่ยนข้อมูลจะคงไว้</span><button type="button" class="btn btn-outline sm" data-act="canceledit">ยกเลิกการแก้ไข</button></div>` : ''}
@@ -921,7 +975,7 @@ function pp1Cell(s, lock) {
   return `<div class="pp1-edit"><span class="small muted">ปพ.1</span><input id="pp1s-${s.id}" aria-label="ปพ.1 ชุดที่" data-ch="pp1" data-s="${s.id}" data-f="pp1Set" value="${esc(s.pp1Set || '')}" placeholder="ชุดที่ 00000" inputmode="numeric" maxlength="7"><input id="pp1n-${s.id}" aria-label="ปพ.1 เลขที่" data-ch="pp1" data-s="${s.id}" data-f="pp1No" value="${esc(s.pp1No || '')}" placeholder="เลขที่ 000000" inputmode="numeric" maxlength="8"></div>`;
 }
 function vVerify() {
-  const opts = REQS().sort(byRecv).map(r => `<option value="${r.id}" ${r.id === U.reqId ? 'selected' : ''}>${esc(r.regNo)} · ${esc(r.agency)} (${r.persons.length} ราย · ${STATUS[r.status].t})</option>`).join('');
+  const opts = REQS().sort(byRecv).map(r => `<option value="${r.id}" ${r.id === U.reqId ? 'selected' : ''}>${esc(r.regNo || 'รอเลขรับ')} · ${esc(r.agency)} (${r.persons.length} ราย · ${STATUS[r.status].t})</option>`).join('');
   const r = getReq(U.reqId);
   return `<div class="pagehead"><h1>ตรวจสอบและบันทึกผลรายบุคคล</h1><p class="muted">ขั้นตอนที่ 2 · เทียบรายชื่อในหนังสือกับฐานข้อมูลผู้สำเร็จการศึกษา แล้วยืนยันผลทีละราย</p></div>
   <div class="card"><div><label for="vf-req">เลือกหนังสือที่จะตรวจสอบ</label><select id="vf-req" data-ch="vfreq"><option value="">— เลือกหนังสือ —</option>${opts}</select></div><div style="margin-top:12px"><label for="vf-q">ค้นหาผู้สำเร็จการศึกษาในฐานข้อมูล</label><input id="vf-q" data-in="vfq" value="${esc(U.vq)}" placeholder="รหัส / เลขบัตร / ชื่อ-สกุล / ระดับชั้น / วันที่จบ / GPA / ปพ.1 ชุดที่-เลขที่ / ค้างชำระ"></div><div id="vf-quick">${quickResults()}</div></div>
@@ -948,12 +1002,13 @@ function letterNote(p) {
   return base ? `${base} ${debtNote()}` : debtNote();
 }
 function verifyPanel(r) {
-  const pend = r.persons.filter(p => p.result === 'pending').length, inc = r.status === 'replied' ? [] : incompleteOf(r), debt = r.persons.filter(hasDebt);
-  return `<div class="card"><div class="between wrap"><div><span class="eyebrow">เลขรับ ${esc(r.regNo)} · ${r.form == 1 ? 'แบบที่ 1 แนบบัญชีรายชื่อจากหน่วยงาน' : 'แบบที่ 2 ระบุรายชื่อ'}</span><h2 style="margin:4px 0">${esc(r.agency)}</h2><p class="muted small" style="margin:0">หนังสือที่ ${esc(r.docNo)} ลงวันที่ ${fmtLong(r.docDate)} · รับเมื่อ ${fmtLong(r.recvDate)}${r.file ? ' · ไฟล์แนบ ' + esc(r.file) : ''}${r.source === 'online' ? ' · <span class="badge info">ส่งผ่านระบบออนไลน์</span>' : ''}</p>${attChips(r)}</div>
-  <div class="row">${statusBadge(r)}${r.status !== 'replied' ? `<button type="button" class="btn btn-outline" data-act="editreq" data-id="${r.id}">✏️ แก้ไขข้อมูลรับหนังสือ</button>${r.persons.length ? `<button type="button" class="btn btn-blue" data-act="automatch" data-id="${r.id}">⚡ ตรวจอัตโนมัติ</button>` : ''}` : ''}<button type="button" class="btn btn-green" data-act="letter" data-id="${r.id}" ${pend || inc.length || !r.persons.length ? 'disabled' : ''}>📝 หนังสือตอบ</button></div></div>
+  const pend = r.persons.filter(unconf).length, inc = r.status === 'replied' ? [] : incompleteOf(r), debt = r.persons.filter(hasDebt);
+  return `<div class="card"><div class="between wrap"><div><span class="eyebrow">เลขรับ ${regLbl(r)} · ${r.form == 1 ? 'แบบที่ 1 แนบบัญชีรายชื่อจากหน่วยงาน' : 'แบบที่ 2 ระบุรายชื่อ'}</span><h2 style="margin:4px 0">${esc(r.agency)}</h2><p class="muted small" style="margin:0">หนังสือที่ ${esc(r.docNo)} ลงวันที่ ${fmtLong(r.docDate)} · รับเมื่อ ${fmtLong(r.recvDate)}${r.file ? ' · ไฟล์แนบ ' + esc(r.file) : ''}${r.source === 'online' ? ' · <span class="badge info">ส่งผ่านระบบออนไลน์</span>' : ''}</p>${attChips(r)}</div>
+  <div class="row">${statusBadge(r)}${r.status !== 'replied' ? `<button type="button" class="btn btn-outline" data-act="editreq" data-id="${r.id}">✏️ แก้ไขข้อมูลรับหนังสือ</button>${r.persons.length ? `<button type="button" class="btn btn-outline" data-act="automatch" data-id="${r.id}" title="ระบบตรวจเทียบให้อัตโนมัติตั้งแต่รับหนังสือ ใช้ปุ่มนี้เมื่อเพิ่งนำเข้าฐานข้อมูลใหม่">⚡ ตรวจเทียบอีกครั้ง</button>` : ''}${r.persons.some(p => p.confirmed === false && p.result === 'found') ? `<button type="button" class="btn btn-green" data-act="confirmall" data-id="${r.id}">✔ ยืนยันผลที่ตรงกับฐานข้อมูล (${r.persons.filter(p => p.confirmed === false && p.result === 'found').length})</button>` : ''}` : ''}<button type="button" class="btn btn-green" data-act="letter" data-id="${r.id}" ${pend || inc.length || !r.persons.length ? 'disabled' : ''}>📝 หนังสือตอบ</button></div></div>
   ${!r.persons.length && r.status !== 'replied' ? `<p class="notice warn row" style="margin-top:14px">ยังไม่มีรายชื่อผู้ขอตรวจสอบในหนังสือฉบับนี้ <button type="button" class="btn btn-outline sm" data-act="editreq" data-id="${r.id}">✏️ เพิ่มรายชื่อ</button></p>` : ''}
   ${r.replyHow || r.dueText ? `<p class="small" style="margin:10px 0 0">${r.dueText ? `<b>กำหนดส่ง:</b> ${esc(r.dueText)}${dueOf(r) && !findDate(r.dueText) ? ` (ภายใน ${fmtLong(dueOf(r))})` : ''}` : ''}${r.dueText && r.replyHow ? ' · ' : ''}${r.replyHow ? `<b>ช่องทางที่ขอให้ตอบกลับ:</b> ${esc(r.replyHow)}` : ''}</p>` : ''}
-  ${pend && r.status !== 'replied' ? `<p class="notice warn" style="margin-top:14px">ยังมี ${pend} รายที่รอผล กด "ตรวจอัตโนมัติ" แล้วตรวจทานผลก่อนสร้างหนังสือตอบ</p>` : ''}
+  ${!r.regNo && r.status !== 'replied' ? `<div class="notice warn regbox" style="margin-top:14px"><b>📨 ระบบรับหนังสือฉบับนี้อัตโนมัติจากคำขอออนไลน์</b> — กรอกเลขทะเบียนรับและวันที่รับจากงานธุรการ${regInputs(r, 'vf')}</div>` : ''}
+  ${pend && r.status !== 'replied' ? `<p class="notice warn" style="margin-top:14px">ระบบตรวจเทียบฐานข้อมูลให้แล้ว เหลือ ${pend} รายที่รอเจ้าหน้าที่ยืนยัน · ตรวจทานแล้วกด "✔ ยืนยัน" · รายที่ไม่พบในฐานข้อมูล (หรือจบก่อนปี ${dbFromYear()}) กด "✍️ ตรวจสอบเอง"</p>` : ''}
   ${inc.length ? `<p class="notice danger" style="margin-top:10px">ข้อมูลยังไม่ครบสำหรับผู้ที่ยืนยันว่าสำเร็จการศึกษาจริง ${inc.length} ราย: ${inc.map(p => `<b>${esc(pName(p))}</b> (ขาด ${missingData(p, r).join(', ')})`).join(' · ')} — กรอกให้ครบก่อนสร้างหนังสือตอบ</p>` : ''}
   ${r.status !== 'replied' && wantsPP1(r) && pp1Missing(r).length ? `<p class="notice warn" style="margin-top:10px">📘 หน่วยงานนี้ต้องการสำเนา ปพ.1 ประกอบหนังสือตอบ ยังไม่มีไฟล์ ${pp1Missing(r).length} ราย: ${pp1Missing(r).map(t => esc(pName(t.p))).join(', ')} — กด "แนบสำเนา ปพ.1" ในตาราง</p>` : ''}
   ${debt.length && r.status !== 'replied' ? `<p class="notice warn" style="margin-top:10px">⚠️ มียอดค้างชำระค่าบำรุงการศึกษา ${debt.length} ราย: ${debt.map(p => esc(pName(p))).join(', ')} · หนังสือตอบจะมีหมายเหตุ "${esc(debtNote())}" (ไม่ระบุยอดเงิน)</p>` : ''}
@@ -965,7 +1020,7 @@ function verifyPanel(r) {
     <td>${s ? `<b>${esc(fullName(s))}</b><div class="sub">รหัส ${esc(s.sid)} · ${esc(s.level)} · จบ ${fmtBE(s.gradDate)}</div>${pp1Cell(s, r.status === 'replied')}${pp1Mini(s, r)}${stuExtra(s)}${missingData(p, r).length && r.status !== 'replied' ? `<div class="small" style="color:var(--danger-fg);font-weight:700">⚠️ ขาด ${missingData(p, r).join(', ')}</div>` : ''}` : '<span class="muted">—</span>'}${p.auto ? `<div class="small auto">${esc(p.auto)}</div>` : ''}${suggestHTML(p, r, i)}${manualBtn(r, p, i)}</td>
     <td class="num">${s && s.gpa ? `<b>${esc(s.gpa)}</b>` : '<span class="muted">—</span>'}</td>
     <td>${s ? (o > 0 ? `<span class="badge danger">฿${money(o)}</span>` : '<span class="badge ok">ไม่มี</span>') : '<span class="muted">—</span>'}</td>
-    <td><select id="res-${p.id}" aria-label="ผลการตรวจสอบ ${esc(p.fname)}" class="res r-${p.result}" data-ch="res" data-r="${r.id}" data-i="${i}" ${r.status === 'replied' ? 'disabled' : ''}>${Object.entries(RESULT).map(([k, v]) => `<option value="${k}" ${p.result === k ? 'selected' : ''}>${v.t}</option>`).join('')}</select></td>
+    <td><select id="res-${p.id}" aria-label="ผลการตรวจสอบ ${esc(p.fname)}" class="res r-${p.result}" data-ch="res" data-r="${r.id}" data-i="${i}" ${r.status === 'replied' ? 'disabled' : ''}>${Object.entries(RESULT).map(([k, v]) => `<option value="${k}" ${p.result === k ? 'selected' : ''}>${v.t}</option>`).join('')}</select>${p.confirmed === false && r.status !== 'replied' ? (p.result === 'pending' ? `<div class="small muted" style="margin-top:4px">รอตรวจสอบเอง</div>` : `<div class="confirm-cell"><span class="small muted">ผลอัตโนมัติ</span><button type="button" class="btn btn-green sm" data-act="confirmp" data-r="${r.id}" data-i="${i}">✔ ยืนยัน</button></div>`) : ''}</td>
     <td><input id="note-${p.id}" aria-label="หมายเหตุ ${esc(p.fname)}" data-ch="note" data-r="${r.id}" data-i="${i}" value="${esc(p.note)}" list="note-presets" placeholder="${hasDebt(p) ? 'ระบบใส่หมายเหตุค้างชำระให้' : p.result === 'found' ? 'ถ้ามี' : 'ระบุปัญหาที่พบ'}" ${r.status === 'replied' ? 'disabled' : ''}></td></tr>${manualOpenFor(r, i) ? manualRow(r, p, i) : ''}`;
   }).join('')}
   </tbody></table></div><datalist id="note-presets">${NOTE_PRESETS.map(o => `<option value="${o}"></option>`).join('')}</datalist><p class="muted small" style="margin:10px 0 0">🔒 คอลัมน์ค่าบำรุงค้างชำระและเลข ปพ.1 แสดงเฉพาะเจ้าหน้าที่ ไม่ปรากฏในหนังสือตอบและหน้าหน่วยงานภายนอก</p></div>`;
@@ -978,7 +1033,7 @@ function vOutgoing() {
   <div class="ledger">${stat('รอสร้างหนังสือตอบ', waitLetter, 'ฉบับ', 'var(--yellow)')}${stat('ออกเลขแล้ว รอส่ง', waitSend, 'ฉบับ', 'var(--blue)')}${stat('ส่งแล้ว', sent, 'ฉบับ', 'var(--green)')}</div>
   <p class="notice ${outLeft() <= 5 ? 'warn' : 'info'}" style="margin:0">เลขหนังสือส่งที่ได้รับจัดสรร ${S.settings.docPrefix}${S.settings.outFrom}–${S.settings.outTo} · เลขถัดไป ${Math.max(S.settings.nextOut, S.settings.outFrom)} · เหลือ ${outLeft()} เลข <button type="button" class="btn btn-outline sm" data-act="go" data-v="settings">กำหนดช่วงเลข</button></p>
   <div class="card"><h2>ทะเบียนหนังสือส่ง</h2><div class="tablewrap"><table><thead><tr><th>เลขรับ</th><th>หน่วยงาน</th><th>สรุปผล</th><th>เลขหนังสือส่ง</th><th>วันที่ส่ง</th><th>สถานะ</th><th></th></tr></thead><tbody>
-  ${R.map(r => { const pend = !r.persons.length || r.persons.some(p => p.result === 'pending'); return `<tr><td><b>${esc(r.regNo)}</b></td><td>${esc(r.agency)}<div class="sub">อ้างถึง ${esc(r.docNo)}</div></td><td>${resultSummary(r)}</td><td>${r.outNo ? esc(S.settings.docPrefix + r.outNo) : '<span class="muted">—</span>'}</td><td>${r.sentDate ? fmtBE(r.sentDate) : '<span class="muted">—</span>'}</td><td>${statusBadge(r)}</td>
+  ${R.map(r => { const pend = !r.persons.length || r.persons.some(unconf); return `<tr><td><b>${regLbl(r)}</b></td><td>${esc(r.agency)}<div class="sub">อ้างถึง ${esc(r.docNo)}</div></td><td>${resultSummary(r)}</td><td>${r.outNo ? esc(S.settings.docPrefix + r.outNo) : '<span class="muted">—</span>'}</td><td>${r.sentDate ? fmtBE(r.sentDate) : '<span class="muted">—</span>'}</td><td>${statusBadge(r)}</td>
   <td class="tdact">${pend || (r.status !== 'replied' && incompleteOf(r).length) ? `<button type="button" class="btn btn-outline sm" data-act="openverify" data-id="${r.id}">${pend ? 'ตรวจให้ครบก่อน' : 'ข้อมูลยังไม่ครบ'}</button>` : `<button type="button" class="btn btn-outline sm" data-act="letter" data-id="${r.id}">📝 ${r.outNo ? 'ดูหนังสือ' : 'สร้างหนังสือ'}</button>`}${r.outNo && r.status !== 'replied' ? ` <button type="button" class="btn btn-green sm" data-act="sent" data-id="${r.id}">บันทึกส่งแล้ว</button>` : ''}</td></tr>`; }).join('')}
   </tbody></table></div></div>`;
 }
@@ -987,11 +1042,11 @@ function trackList() {
   const q = U.tq.trim().toLowerCase();
   const list = REQS().sort(byRecv).filter(r => !q || [r.regNo, r.docNo, r.agency, r.outNo].join(' ').toLowerCase().includes(q));
   if (!list.length) return `<p class="muted small">ไม่พบหนังสือที่ตรงกับคำค้น</p>`;
-  return list.map(r => `<button type="button" class="titem ${r.id === U.trackId ? 'on' : ''}" data-act="trsel" data-id="${r.id}"><b>${esc(r.regNo)} · ${esc(r.agency)}</b><span class="sub">ที่ ${esc(r.docNo)}</span><span>${statusBadge(r)}</span></button>`).join('');
+  return list.map(r => `<button type="button" class="titem ${r.id === U.trackId ? 'on' : ''}" data-act="trsel" data-id="${r.id}"><b>${regLbl(r)} · ${esc(r.agency)}</b><span class="sub">ที่ ${esc(r.docNo)}</span><span>${statusBadge(r)}</span></button>`).join('');
 }
 function trackDetail(r) {
   if (!r) return `<p class="muted">เลือกหนังสือจากรายการ</p>`;
-  return `<span class="eyebrow">เลขรับ ${esc(r.regNo)}</span><h2 style="margin:4px 0">${esc(r.agency)}</h2><p class="muted small" style="margin:0">หนังสือที่ ${esc(r.docNo)} · E-mail ${esc(r.email)} · ${r.persons.length} ราย</p>
+  return `<span class="eyebrow">เลขรับ ${regLbl(r)}</span><h2 style="margin:4px 0">${esc(r.agency)}</h2><p class="muted small" style="margin:0">หนังสือที่ ${esc(r.docNo)} · E-mail ${esc(r.email)} · ${r.persons.length} ราย</p>
   ${stepper(r)}${deliveryLine(r)}
   <div class="row" style="margin:14px 0"><button type="button" class="btn btn-outline sm" data-act="openverify" data-id="${r.id}">🔍 ผลการตรวจสอบ</button>${r.persons.every(p => p.result !== 'pending') ? `<button type="button" class="btn btn-outline sm" data-act="letter" data-id="${r.id}">📝 หนังสือตอบ</button>` : ''}</div>
   <h3 style="margin-bottom:10px">ประวัติการดำเนินการ</h3>
@@ -1000,6 +1055,7 @@ function trackDetail(r) {
 function vTrack() {
   if (!getReq(U.trackId)) U.trackId = (REQS().sort(byRecv)[0] || {}).id || null;
   return `<div class="pagehead"><h1>ติดตามสถานะหนังสือ</h1><p class="muted">ดูขั้นตอนและประวัติการดำเนินการของหนังสือแต่ละฉบับ รายการที่มี 🔒 ไม่แสดงต่อหน่วยงานภายนอก</p></div>
+  ${subNav(U.view)}
   <div class="grid g-1-2"><div class="card"><label for="tr-q">ค้นหาหนังสือ</label><input id="tr-q" data-in="trq" value="${esc(U.tq)}" placeholder="เลขรับ / เลขที่หนังสือ / หน่วยงาน"><div class="tlist" id="tr-list">${trackList()}</div></div>
   <div class="card" id="tr-detail">${trackDetail(getReq(U.trackId))}</div></div>`;
 }
@@ -1037,6 +1093,10 @@ function gradsTable() {
 const STU_TEMPLATE_HEAD = ['ลำดับที่', 'เลขประจำตัวนักเรียน', 'เลขประจำตัวประชาชน', 'ชุดที่ ปพ.1', 'เลขที่ ปพ.1', 'เลขที่ ปพ.2', 'คำนำหน้า', 'ชื่อ', 'ชื่อสกุล', 'เกิดวันที่', 'เดือนเกิด', 'ปี พ.ศ. เกิด', 'คำนำหน้าบิดา', 'ชื่อบิดา', 'สกุลบิดา', 'คำนำหน้ามารดา', 'ชื่อมารดา', 'สกุลมารดา', 'หน่วยกิตที่เรียน', 'หน่วยกิตที่ได้', 'ผลการเรียนเฉลี่ยตลอดหลักสูตร', 'ผลการประเมินการอ่านคิดวิเคราะห์ และเขียน', 'ผลการประเมินคุณลักษณะอันพึงประสงค์', 'ผลการประเมินกิจกรรมพัฒนาผู้เรียน', 'หมายเหตุ', 'อื่นๆ (กรณีที่ไม่มีหลักฐาน) ระบุลำดับคอลัมภ์ที่พบว่าไม่มี', 'ประวัติค้างชำระค่าบำรุงการศึกษา'];
 const DEBT_ITEM = 'ค่าบำรุงการศึกษา (ยอดค้างจากฐานข้อมูลนักเรียน)';
 const padNum = (v, n) => { const d = digits(v); return d ? d.padStart(n, '0') : ''; };
+function levelFromName(n) {
+  const t = String(n || ''), a = /ม\.?\s*3(?!\d)|มัธยมศึกษาปีที่\s*3|ม\.?\s*ต้น/.test(t), b = /ม\.?\s*6(?!\d)|มัธยมศึกษาปีที่\s*6|ม\.?\s*ปลาย/.test(t);
+  return a && !b ? 'ม.3' : b && !a ? 'ม.6' : '';
+}
 function isStudentDB(rows) { return rows.some(r => r.some(c => /เลขประจำตัวนักเรียน/.test(String(c))) && r.some(c => /ชุดที่\s*ปพ/.test(String(c)))); }
 function importStudentDB(rows, levelSel, gradSel, fileName) {
   const hi = rows.findIndex(r => r.some(c => /เลขประจำตัวนักเรียน/.test(String(c))) && r.some(c => /^ชื่อ$/.test(String(c).trim())));
@@ -1080,7 +1140,8 @@ function importStudentDB(rows, levelSel, gradSel, fileName) {
     if (s) { Object.assign(s, obj); updated++; } else { s = Object.assign({ id: uid('s') }, obj); S.students.push(s); added++; }
     const debt = parseFloat(thaiDigits(cell(r, C.debt)).replace(/[^\d.]/g, '')) || 0;
     const fee = S.fees.find(f => f.studentId === s.id && f.item === DEBT_ITEM);
-    if (debt > 0) { if (fee) { fee.amount = debt; fee.paid = 0; } else S.fees.push({ id: uid('f'), studentId: s.id, term: '', item: DEBT_ITEM, amount: debt, paid: 0, note: 'นำเข้าจากฐานข้อมูลนักเรียน' }); fees++; }
+    if (S.fees.some(f => f.studentId === s.id && f.src === 'feefile')) { if (fee) S.fees = S.fees.filter(f => f !== fee); }
+    else if (debt > 0) { if (fee) { fee.amount = debt; fee.paid = 0; } else S.fees.push({ id: uid('f'), studentId: s.id, term: '', item: DEBT_ITEM, amount: debt, paid: 0, note: 'นำเข้าจากฐานข้อมูลนักเรียน' }); fees++; }
     else if (fee) fee.paid = fee.amount;
   });
   save();
@@ -1098,23 +1159,16 @@ function stuExtra(s) {
 function vGrads() {
   const lv = ['', 'ม.3', 'ม.6'];
   return `<div class="pagehead"><h1>ฐานข้อมูลผู้สำเร็จการศึกษา</h1><p class="muted">ข้อมูลอ้างอิงสำหรับตรวจสอบวุฒิ · นำเข้าจากไฟล์ของงานทะเบียน แล้วค้นหาหรือแก้ไขรายบุคคลได้ด้านล่าง</p></div>
-  <details class="card imp-card" data-sec="imp" ${(U.secOpen && 'imp' in U.secOpen ? U.secOpen.imp : !S.students.length) ? 'open' : ''}><summary><span><b>📁 นำเข้า / อัปเดตฐานข้อมูล</b><span class="muted small"> · ไฟล์ Excel งานทะเบียน, ปพ.3 หรือ CSV</span></span></summary>
-  ${tabsBar('gtab', [['excel', 'ไฟล์ Excel งานทะเบียน (แนะนำ)'], ['pp3', 'ไฟล์ ปพ.3'], ['csv', 'CSV']])}
-  <div class="imp-pane stuimp" ${tp('gtab', 'excel', 'excel')}><div class="between wrap"><div><h2 style="margin:0">นำเข้าฐานข้อมูลนักเรียนที่จบการศึกษา (ไฟล์ Excel ของงานทะเบียน)</h2><p class="muted small" style="margin:4px 0 0">อ่านคอลัมน์ เลขประจำตัวนักเรียน · เลขประจำตัวประชาชน · ชุดที่/เลขที่ ปพ.1 · เลขที่ ปพ.2 · ชื่อ-สกุล · วันเกิด · บิดา-มารดา · หน่วยกิต · ผลการเรียนเฉลี่ย · ผลการประเมิน · หมายเหตุ · หลักฐานที่ไม่มี · ยอดค้างชำระ (ยอดค้างจะสร้างรายการในหน้าค่าบำรุงให้)</p></div><button type="button" class="btn btn-outline sm" data-act="stutemplate">ดาวน์โหลดแบบฟอร์มเปล่า</button></div>
-    <div class="grid g3" style="margin-top:12px"><div><label for="si-file">ไฟล์ฐานข้อมูลนักเรียน (.xlsx / .xls / .csv)</label><input type="file" id="si-file" accept=".xlsx,.xls,.csv"></div>
-    <div><label for="si-level">ระดับชั้นที่จบ</label><select id="si-level"><option value="">— เลือก —</option><option>ม.3</option><option>ม.6</option></select></div>
-    <div><label for="si-date">วันที่จบ (วันที่อนุมัติการจบ)</label><input id="si-date" placeholder="31/03/2569"></div></div>
-    <div class="row" style="margin-top:12px"><button type="button" class="btn btn-primary" data-act="stuimp">นำเข้าฐานข้อมูลนักเรียน</button><span class="muted small">ไฟล์ไม่มีคอลัมน์ระดับชั้นและวันที่จบ จึงต้องเลือกทั้งสองช่อง (นำเข้าทีละรุ่น)</span></div>
-    <div id="si-msg" style="margin-top:10px">${U.stuMsg || ''}</div></div>
-  <div class="imp-pane" ${tp('gtab', 'pp3', 'excel')}><h3>นำเข้าจากไฟล์ ปพ.3</h3><p class="muted small" style="margin-top:-6px">รองรับ .xls / .xlsx ต้นฉบับ อ่านทุกหน้าในไฟล์เดียว ดึงรหัสประจำตัว เลขบัตรประชาชน ชื่อ-สกุล วันเกิด ชื่อบิดา-มารดา GPA และวันที่อนุมัติจบจากท้ายเอกสาร</p>
-      <div class="stack"><div><label for="gd-pp3">ไฟล์ ปพ.3</label><input type="file" id="gd-pp3" accept=".xls,.xlsx" data-ch="pp3file"></div>
-      <div class="grid g2"><div><label for="gd-level">ระดับชั้นที่จบ</label><select id="gd-level"><option value="">— เลือก —</option><option>ม.3</option><option>ม.6</option></select></div>
-      <div><label for="gd-date">วันที่จบ (ใช้เมื่อไม่พบในไฟล์)</label><input id="gd-date" placeholder="31/03/2569"></div></div>
-      <button type="button" class="btn btn-primary" data-act="pp3">นำเข้าจากไฟล์ ปพ.3</button><div id="gd-msg">${U.lastImport}</div></div></div>
-  <div class="imp-pane" ${tp('gtab', 'csv', 'excel')}><h3>นำเข้าจาก CSV</h3><p class="muted small" style="margin-top:-6px">คอลัมน์: รหัสประจำตัว, ชื่อ-สกุล, ระดับชั้นที่จบ, วันที่จบ (เพิ่มคอลัมน์ เลขบัตรประชาชน / GPA / ปพ.1 ชุดที่ / ปพ.1 เลขที่ ได้ · ไฟล์ที่มีแค่ รหัสประจำตัว + ชุดที่ + เลขที่ ใช้เติมเลข ปพ.1 ให้รายชื่อเดิม)</p>
-      <div class="stack"><div><label for="gd-csv">ไฟล์ CSV</label><input type="file" id="gd-csv" accept=".csv,.txt" data-ch="csvfile"></div>
-      <div><label for="gd-csvtext">หรือวางข้อความ CSV</label><textarea id="gd-csvtext" rows="4" placeholder="รหัสประจำตัว,ชื่อ-สกุล,ระดับชั้นที่จบ,วันที่จบ&#10;10301,นางสาวตัวอย่าง ใจดี,ม.6,31/03/2569"></textarea></div>
-      <button type="button" class="btn btn-blue" data-act="csvimp">นำเข้า CSV</button></div></div>
+  ${subNav(U.view)}
+  <details class="card imp-card" data-sec="imp" ${(U.secOpen && 'imp' in U.secOpen ? U.secOpen.imp : !S.students.length) ? 'open' : ''}><summary><span><b>📁 นำเข้า / อัปเดตฐานข้อมูล</b><span class="muted small"> · Excel งานทะเบียน, ปพ.3 หรือ CSV · เลือกได้หลายไฟล์ครั้งเดียว</span></span></summary>
+  <div class="imp-pane stuimp">
+    <p class="muted small" style="margin:0 0 10px">เลือกได้หลายไฟล์พร้อมกัน (กด Ctrl หรือ Shift ค้างขณะเลือก หรือลากไฟล์มาวางในช่อง) ระบบแยกชนิดไฟล์ให้เอง: <b>Excel ฐานข้อมูลนักเรียนของงานทะเบียน</b> · <b>ไฟล์ ปพ.3</b> · <b>CSV</b> · ระดับชั้นอ่านจากชื่อไฟล์ได้ เช่น “ม.6 รุ่น 2567.xlsx” ถ้าชื่อไฟล์ไม่ระบุ ใช้ค่าที่เลือกด้านล่าง</p>
+    <div class="grid g3"><div><label for="db-files">ไฟล์ฐานข้อมูล (.xlsx / .xls / .csv) — หลายไฟล์ได้</label><input type="file" id="db-files" accept=".xlsx,.xls,.csv,.txt" multiple data-ch="dbpick"><div class="hintline" id="db-picked"></div></div>
+    <div><label for="db-level">ระดับชั้นที่จบ (ถ้าชื่อไฟล์ไม่ระบุ)</label><select id="db-level"><option value="">— อ่านจากไฟล์ —</option><option>ม.3</option><option>ม.6</option></select></div>
+    <div><label for="db-date">วันที่จบ (ใช้เมื่อไฟล์ไม่มี)</label><input id="db-date" placeholder="31/03/2569"></div></div>
+    <div class="row" style="margin-top:12px"><button type="button" class="btn btn-primary" data-act="dbimport">📥 นำเข้าทุกไฟล์</button><button type="button" class="btn btn-outline sm" data-act="stutemplate">ดาวน์โหลดแบบฟอร์มเปล่า</button></div>
+    <details class="csv-paste" style="margin-top:12px"><summary class="small">หรือวางข้อความ CSV แทนไฟล์</summary><div class="stack" style="margin-top:8px"><textarea id="gd-csvtext" rows="3" placeholder="รหัสประจำตัว,ชื่อ-สกุล,ระดับชั้นที่จบ,วันที่จบ&#10;10301,นางสาวตัวอย่าง ใจดี,ม.6,31/03/2569"></textarea><div><button type="button" class="btn btn-blue sm" data-act="csvimp">นำเข้าข้อความ CSV</button></div></div></details>
+    <div id="db-msg" style="margin-top:10px">${U.dbMsg || U.stuMsg || U.lastImport || ''}</div></div>
   </details>
   <div class="card"><div class="between wrap"><h2 style="margin:0">รายชื่อผู้สำเร็จการศึกษา</h2><div class="row"><input id="gd-q" data-in="gdq" value="${esc(U.gq)}" placeholder="ค้นหา รหัส / เลขบัตร / ชื่อ / ระดับ / วันที่จบ / GPA / ปพ.1 / ค้างชำระ" style="width:340px"><select id="gd-flevel" data-ch="gdlevel" aria-label="กรองระดับชั้น" style="width:auto">${lv.map(o => `<option value="${o}" ${U.glevel === o ? 'selected' : ''}>${o || 'ทุกระดับ'}</option>`).join('')}</select><button type="button" class="btn btn-outline sm" data-act="toggleadd">${U.showAdd ? 'ปิดฟอร์ม' : '+ เพิ่มรายบุคคล'}</button></div></div>
   <form class="addform" data-form="addstu" ${U.showAdd ? '' : 'hidden'} novalidate>
@@ -1133,11 +1187,94 @@ function vGrads() {
 
 function feesTable() {
   const q = U.fq.trim(), qn = normName(q), qd = digits(q);
-  const list = S.fees.map(f => ({ f, s: getStu(f.studentId) })).filter(x => x.s && (!U.fOnly || x.f.amount - x.f.paid > 0) && (!q || (qd.length >= 2 && sidKey(x.s.sid).includes(sidKey(qd))) || (qn && normName(fullName(x.s)).includes(qn))));
+  const list = S.fees.map(f => ({ f, s: getStu(f.studentId) || (f.sid ? { sid: f.sid, fname: f.sname || '', lname: '', prefix: '', level: f.level || '', orphan: true } : null) })).filter(x => x.s && (!U.fOnly || x.f.amount - x.f.paid > 0) && (!q || (qd.length >= 2 && sidKey(x.s.sid).includes(sidKey(qd))) || (qn && normName(fullName(x.s)).includes(qn))));
   return `<div class="tablewrap"><table><thead><tr><th>รหัส</th><th>ชื่อ-สกุล</th><th>ภาค/ปีการศึกษา</th><th>รายการ</th><th class="num">จำนวนเงิน</th><th class="num">ชำระแล้ว</th><th class="num">ค้างชำระ</th><th>สถานะ</th><th></th></tr></thead><tbody>
-  ${list.map(({ f, s }) => { const o = Math.max(0, f.amount - f.paid); return `<tr><td>${esc(s.sid)}</td><td>${esc(fullName(s))}</td><td>${esc(f.term)}</td><td>${esc(f.item)}</td><td class="num">${money(f.amount)}</td><td class="num">${money(f.paid)}</td><td class="num"><b>${money(o)}</b></td><td>${o > 0 ? '<span class="badge danger">ค้างชำระ</span>' : '<span class="badge ok">ชำระครบ</span>'}</td>
+  ${list.map(({ f, s }) => { const o = Math.max(0, f.amount - f.paid); return `<tr><td>${esc(s.sid)}</td><td>${esc(s.orphan ? s.fname : fullName(s))}${s.orphan ? `<div class="small"><span class="badge warn">ยังไม่มีในฐานข้อมูลผู้สำเร็จการศึกษา${s.level ? ' ' + esc(s.level) : ''}</span></div>` : ''}</td><td>${esc(f.term)}</td><td>${esc(f.item)}</td><td class="num">${money(f.amount)}</td><td class="num">${money(f.paid)}</td><td class="num"><b>${money(o)}</b></td><td>${o > 0 ? '<span class="badge danger">ค้างชำระ</span>' : '<span class="badge ok">ชำระครบ</span>'}</td>
   <td class="tdact">${o > 0 ? `<button type="button" class="btn btn-green sm" data-act="payfull" data-id="${f.id}">รับชำระครบ</button> ` : ''}<button type="button" class="btn btn-outline sm" data-act="delfee" data-id="${f.id}">ลบ</button></td></tr>`; }).join('') || `<tr><td colspan="9" class="muted">ไม่มีรายการ</td></tr>`}
   </tbody></table></div>`;
+}
+/* ไฟล์ค่าบำรุงแบบตารางภาคเรียน (งานการเงิน): ที่ | เลขนักเรียน | คำนำหน้า | ชื่อ | นามสกุล | ชั้น | ห้อง | ปี 25xx (ภาคเรียนที่ 1/2) … | รวมยอดค้างชำระ
+   อ่านได้หลายชีตในไฟล์เดียว · ไฟล์ใหม่ทับข้อมูลเดิมของภาคเรียนเดียวกัน · ภาคที่เป็น "-" หรือ 0 = ไม่มียอดค้าง (ถ้าเคยค้าง บันทึกเป็นชำระแล้ว)
+   นักเรียนที่ยังไม่มีในฐานข้อมูลผู้สำเร็จการศึกษา เก็บยอดไว้ก่อน แล้วผูกให้อัตโนมัติเมื่อนำเข้าฐานข้อมูลรายนั้น */
+const FEE_ITEM = 'ค่าบำรุงการศึกษา';
+const feeLevel = v => { const t = thaiDigits(String(v ?? '')); const m = t.match(/[36]/); return /ม\.?\s*[36]|^\s*[36]\s*$/.test(t) && m ? 'ม.' + m[0] : ''; };
+function findStuForFee(sid, level, nm) {
+  const k = sidKey(sid);
+  if (k) {
+    const all = S.students.filter(x => sidKey(x.sid) === k);
+    const hit = (level && all.find(x => x.level === level)) || (all.length === 1 ? all[0] : null);
+    if (hit) return hit;
+  }
+  return nm ? S.students.find(x => (!level || x.level === level) && (normName(fullName(x)) === nm || normName(x.fname + x.lname) === nm)) || null : null;
+}
+/* ผูกยอดที่ยังไม่มีเจ้าของกับนักเรียนในฐานข้อมูล (เรียกทุกครั้งที่บันทึก) */
+function linkFees() {
+  if (!S || !S.fees || !S.fees.some(f => !f.studentId && f.sid)) return 0;
+  let n = 0;
+  S.fees.forEach(f => {
+    if (f.studentId || !f.sid) return;
+    const s = findStuForFee(f.sid, f.level, ''); if (!s) return;
+    f.studentId = s.id; n++;
+    S.fees = S.fees.filter(x => !(x.studentId === s.id && x.item === DEBT_ITEM));
+  });
+  return n;
+}
+function importFeeMatrix(rows) {
+  const isHead = r => r.some(c => /เลขนักเรียน|เลขประจำตัวนักเรียน|รหัสนักเรียน/.test(String(c))) && r.some(c => /25\d\d/.test(thaiDigits(String(c))));
+  if (!rows.some(isHead)) return null;
+  const num = v => { const t = thaiDigits(String(v ?? '')).replace(/[^\d.\-]/g, ''); return t && t !== '-' ? parseFloat(t) || 0 : 0; };
+  let C = null, sheets = 0, students = 0, linked = 0, orphan = 0, debt = 0, cleared = 0, total = 0;
+  const seen = new Set(), mism = [];
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i].map(c => String(c ?? '').trim());
+    if (isHead(r)) {
+      const sub = (rows[i + 1] || []).map(c => thaiDigits(String(c ?? '')));
+      const h = r.map(c => thaiDigits(c).replace(/\s+/g, ' '));
+      const at = re => h.findIndex(x => re.test(x));
+      C = { sid: at(/เลขนักเรียน|เลขประจำตัวนักเรียน|รหัสนักเรียน/), pre: at(/คำนำหน้า/), fn: h.findIndex(x => /^ชื่อ$|^ชื่อ\s/.test(x) || x === 'ชื่อ'), ln: at(/นามสกุล|^สกุล/), cls: at(/^ชั้น/), tot: at(/รวม|ค้างชำระ/), terms: [] };
+      if (C.fn < 0) C.fn = at(/ชื่อ(?!.*สกุล)/);
+      /* บางชีตมีตารางชุดที่ 2 (สำเนา/ฉบับเก่า) วางไว้ด้านขวา: อ่านเฉพาะตารางแรก */
+      const end2 = h.findIndex((x, j) => j > C.sid && /เลขนักเรียน|เลขประจำตัวนักเรียน|รหัสนักเรียน/.test(x));
+      C.end = end2 > 0 ? end2 : h.length;
+      if (C.tot >= C.end) C.tot = -1;
+      let lastYear = '';
+      h.forEach((x, j) => {
+        if (j === C.tot || j >= C.end) return;
+        const y = (x.match(/25\d\d/) || [])[0] || (x === '' && lastYear ? lastYear : '');
+        const sm = (sub[j] || '').match(/ภาค(?:เรียน)?(?:ที่)?\s*(\d)/) || x.match(/^(\d)\s*\/\s*25\d\d/);
+        if (y) lastYear = y;
+        if (y && sm) C.terms.push({ j, term: `${sm[1]}/${y}` });
+      });
+      sheets++;
+      if (sub.some(c => /ภาค/.test(c))) i++;
+      continue;
+    }
+    if (!C || C.sid < 0) continue;
+    const sid = r[C.sid]; if (!sid || !/\d/.test(sid)) continue;
+    const fname = C.fn >= 0 ? r[C.fn] : '', lname = C.ln >= 0 ? r[C.ln] : '', pre = C.pre >= 0 ? r[C.pre] : '';
+    const level = C.cls >= 0 ? feeLevel(r[C.cls]) : '';
+    const key = sidKey(sid) + '|' + level + '|' + normName(fname + lname); if (seen.has(key)) continue; seen.add(key);
+    students++;
+    const s = findStuForFee(sid, level, normName(fname + lname));
+    const terms = C.terms.map(t => ({ term: t.term, amt: num(rows[i][t.j]) }));
+    const sum = terms.reduce((a, t) => a + t.amt, 0), tot = C.tot >= 0 ? num(rows[i][C.tot]) : sum;
+    if (C.tot >= 0 && Math.abs(sum - tot) > 0.5) mism.push(`${sid} ${fname} (รวมในไฟล์ ${money(tot)} · รายภาค ${money(sum)})`);
+    if (!terms.length && tot > 0) terms.push({ term: '', amt: tot });
+    const owner = f => s ? f.studentId === s.id : (!f.studentId && sidKey(f.sid) === sidKey(sid) && (f.level || '') === level);
+    if (s && terms.some(t => t.amt > 0)) S.fees = S.fees.filter(f => !(f.studentId === s.id && f.item === DEBT_ITEM));
+    let has = false;
+    terms.forEach(t => {
+      const ex = S.fees.find(f => owner(f) && f.src === 'feefile' && f.term === t.term);
+      if (t.amt > 0) {
+        has = true; total += t.amt;
+        if (ex) { ex.amount = t.amt; ex.paid = 0; }
+        else S.fees.push(Object.assign({ id: uid('f'), studentId: s ? s.id : null, term: t.term, item: FEE_ITEM, amount: t.amt, paid: 0, note: 'นำเข้าจากไฟล์ค่าบำรุงการศึกษา', src: 'feefile' }, s ? {} : { sid, sname: [pre + fname, lname].filter(Boolean).join(' '), level }));
+      } else if (ex && ex.paid < ex.amount) { ex.paid = ex.amount; cleared++; }
+    });
+    if (has) { debt++; if (s) linked++; else orphan++; }
+  }
+  save();
+  return { sheets, students, debt, linked, orphan, cleared, total, mism };
 }
 function importFees(rows) {
   let hi = rows.findIndex(r => r.some(c => /รหัส|เลขประจำตัว/.test(String(c))) && r.some(c => /จำนวน|เงิน|ค้าง|ยอด/.test(String(c))));
@@ -1168,10 +1305,11 @@ function importFees(rows) {
 function vFees() {
   const debtors = new Set(S.fees.filter(f => f.amount - f.paid > 0).map(f => f.studentId)).size;
   return `<div class="pagehead"><h1>ค่าบำรุงการศึกษา</h1><p class="muted">บันทึกรายการค่าบำรุงและยอดค้างชำระรายรายการ ใช้ประกอบการพิจารณาภายในเท่านั้น</p></div>
+  ${subNav(U.view)}
   <p class="notice info" style="margin:0">🔒 ข้อมูลหน้านี้แสดงเฉพาะเจ้าหน้าที่ ไม่แสดงในหน้าหน่วยงานภายนอกและไม่ปรากฏในหนังสือตอบ</p>
   <div class="ledger">${stat('ยอดค้างชำระรวม', '฿' + money(totalOutstanding()), '', 'var(--red)')}${stat('นักเรียนที่มียอดค้าง', debtors, 'ราย', 'var(--yellow)')}${stat('รายการทั้งหมด', S.fees.length, 'รายการ', 'var(--blue)')}</div>
   <div class="grid g2"><div class="card"><h2>นำเข้าจากไฟล์</h2><p class="muted small" style="margin-top:-6px">ไฟล์ Excel (.xlsx/.xls) หรือ CSV คอลัมน์: รหัสประจำตัว, ชื่อ-สกุล (ถ้ามี), ภาค/ปีการศึกษา, รายการ, จำนวนเงิน, ชำระแล้ว หรือ ค้างชำระ · รายการเดิมของนักเรียนคนเดิม ภาคเดิม รายการเดิม จะถูกอัปเดต</p>
-    <div class="stack"><div><label for="fi-file">ไฟล์ค่าบำรุงการศึกษา</label><input type="file" id="fi-file" accept=".xlsx,.xls,.csv,.txt"></div>
+    <div class="stack"><div><label for="fi-file">ไฟล์ค่าบำรุงการศึกษา (เลือกได้หลายไฟล์)</label><input type="file" id="fi-file" accept=".xlsx,.xls,.csv,.txt" multiple></div>
     <div><label for="fi-text">หรือวางข้อความ CSV</label><textarea id="fi-text" rows="3" placeholder="รหัสประจำตัว,ชื่อ-สกุล,ภาค/ปีการศึกษา,รายการ,จำนวนเงิน,ชำระแล้ว&#10;10245,นายภูมิพัฒน์ วงศ์ทอง,2/2568,ค่าบำรุงการศึกษา,3500,1500"></textarea></div>
     <button type="button" class="btn btn-primary" data-act="feeimport">นำเข้าข้อมูลค่าบำรุง</button><div id="fi-msg">${U.feeMsg || ''}</div></div></div>
   <div class="card"><h2>บันทึกทีละรายการ</h2><form class="addform one" style="margin:0" data-form="addfee" novalidate>
@@ -1198,6 +1336,7 @@ function vReports() {
   const debt = S.students.map(s => ({ s, o: outstanding(s.id) })).filter(x => x.o > 0).sort((a, b) => b.o - a.o);
   const pmax = Math.max(1, persons.length);
   return `<div class="pagehead between wrap"><div><h1>รายงาน</h1><p class="muted">สรุปงานรับ–ส่งและผลการตรวจสอบวุฒิ ปีการศึกษาปัจจุบัน</p></div><button type="button" class="btn btn-outline" data-act="copycsv">คัดลอกรายงานเป็น CSV</button></div>
+  ${subNav(U.view)}
   <div class="ledger">${stat('หนังสือรับ', R.length, 'ฉบับ', 'var(--blue)')}${stat('บุคคลที่ขอตรวจ', persons.length, 'ราย', 'var(--pink)')}${stat('ยืนยันสำเร็จการศึกษา', cnt('found'), 'ราย', 'var(--green)')}${stat('เวลาดำเนินการเฉลี่ย', avg, 'วัน', 'var(--yellow)')}</div>
   <div class="grid g2">
     <div class="card"><h2>หนังสือรับรายเดือน (6 เดือนล่าสุด)</h2><div class="bars">${months.map(m => `<div class="barrow"><span>${m.label}</span><div class="bartrack"><div class="barfill" style="width:${(m.n / mmax) * 100}%"></div></div><b>${m.n}</b></div>`).join('')}</div></div>
@@ -1256,6 +1395,7 @@ function vSettings() {
   <div class=""><label for="st-outNoYear">รูปแบบเลขที่หนังสือส่ง (ค่าเริ่มต้น เปลี่ยนรายฉบับได้)</label><select id="st-outNoYear"><option value="0" ${st.outNoYear ? '' : 'selected'}>ไม่ใส่ปี พ.ศ. เช่น ที่ ${esc(st.docPrefix)}121</option><option value="1" ${st.outNoYear ? 'selected' : ''}>ใส่ปี พ.ศ. เช่น ที่ ${esc(st.docPrefix)}121/${beYear()}</option></select></div>
   <div class="span2 range-box"><b>ช่วงเลขหนังสือส่งที่ได้รับจัดสรรจากงานธุรการ</b><div class="grid g3"><div><label for="st-outFrom">ตั้งแต่เลขที่</label><input id="st-outFrom" inputmode="numeric" value="${st.outFrom}"></div><div><label for="st-outTo">ถึงเลขที่</label><input id="st-outTo" inputmode="numeric" value="${st.outTo}"></div><div><label for="st-nextOut">เลขถัดไปที่จะใช้</label><input id="st-nextOut" inputmode="numeric" value="${Math.max(st.nextOut, st.outFrom)}"></div></div><p class="muted small" style="margin:0">เหลือ ${outLeft()} เลข · เลขถัดไป: ที่ ${esc(st.docPrefix)}${Math.max(st.nextOut, st.outFrom)}${st.outNoYear ? '/' + beYear() : ''}</p></div>
   <div><label for="st-slaDays">กำหนดตอบหนังสือภายใน (วัน)</label><input id="st-slaDays" type="number" min="1" max="60" value="${slaDays()}"><p class="muted small" style="margin:6px 0 0">ใช้แจ้งเตือนหนังสือที่ใกล้หรือเกินกำหนด</p></div>
+  <div><label for="st-dbFromYear">ฐานข้อมูลผู้สำเร็จการศึกษามีตั้งแต่ปีที่จบ (พ.ศ.)</label><input id="st-dbFromYear" inputmode="numeric" value="${dbFromYear()}"><p class="muted small" style="margin:6px 0 0">ผู้ที่จบก่อนปีนี้และไม่พบในฐานข้อมูล ระบบจะให้เจ้าหน้าที่ตรวจสอบเอง</p></div>
   <div class="stack" style="gap:12px;align-content:end"><label class="row" style="margin:0;gap:10px;font-weight:600;align-self:end"><span class="switch"><input type="checkbox" id="st-thaiNum" ${st.thaiNum !== false ? 'checked' : ''}><span class="slider"></span></span>ใช้เลขไทยในหนังสือราชการ</label><label class="row" style="margin:0;gap:10px;font-weight:600;align-self:end"><span class="switch"><input type="checkbox" id="st-letterGpa" ${st.letterGpa !== false ? 'checked' : ''}><span class="slider"></span></span>แสดงเกรดเฉลี่ยในหนังสือตอบ (ค่าเริ่มต้น)</label></div>
   <div class="span2"><label for="st-debtNote">หมายเหตุในหนังสือตอบ กรณีผู้สำเร็จการศึกษามียอดค้างชำระ</label><input id="st-debtNote" value="${esc(st.debtNote || DEBT_NOTE_DEFAULT)}"><p class="muted small" style="margin:6px 0 0">แสดงในช่องหมายเหตุโดยไม่ระบุยอดเงิน</p></div>
   </div>
@@ -1308,8 +1448,17 @@ const ENCL_UNITS = ['ฉบับ', 'ชุด', 'แผ่น', 'เล่ม']
    - หน่วยงานแนบใบรายชื่อมา (แบบที่ 1) = ส่งสำเนาใบรายชื่อจากสถาบันกลับ + ผลอยู่ในตารางในหนังสือ
    - ไม่ได้แนบใบรายชื่อมา (แบบที่ 2) = แนบบัญชีรายชื่อผลการตรวจสอบจากระบบของโรงเรียนให้อัตโนมัติ */
 const hasAgencyList = r => r.form == 1 && !!(r.file || (r.attachments || []).length);
+/* แบบที่ 2 (หน่วยงานไม่ได้แนบรายชื่อมา): ไม่เกิน 5 ราย = ตารางในหนังสือนำ (หน้าเดียว) · เกิน 5 ราย = แนบบัญชีรายชื่อจากระบบของโรงเรียน */
+const BODY_MAX = 5;
 function enclList(r) {
-  if (!Array.isArray(r.enclosures)) r.enclosures = r.form == 1 ? [{ name: ENCL_TITLE, qty: 1, unit: 'ฉบับ', kind: 'agency' }] : [];
+  if (!Array.isArray(r.enclosures)) {
+    r.enclosures = r.form == 1 ? [{ name: ENCL_TITLE, qty: 1, unit: 'ฉบับ', kind: 'agency' }] : [];
+    if (r.form != 1 && r.status !== 'replied') r.enclAuto = true;
+  }
+  if (r.enclAuto && r.form != 1 && r.status !== 'replied') {
+    const rest = r.enclosures.filter(e => !listKind(e)), big = (r.persons || []).length > BODY_MAX;
+    r.enclosures = big ? [{ name: ENCL_TITLE, qty: 1, unit: 'ฉบับ', kind: 'system' }, ...rest] : rest;
+  }
   return r.enclosures;
 }
 const listMode = r => { const e = enclList(r).find(listKind); return e ? listKind(e) : null; };
@@ -1347,9 +1496,9 @@ function letterHTML(r) {
   const body = `${r.outNo ? '' : '<div class="draftmark">ร่าง</div>'}
   <div class="lt-head"><p>ที่ ${esc(st.docPrefix)}${esc(r.outNo || '..........')}</p><p class="lt-addr">${addr}</p></div>
   <p class="lt-date">${letterDateText(r)}</p>
-  <p class="lt-f"><span>เรื่อง</span><span>แจ้งผลการตรวจสอบวุฒิการศึกษา</span></p>
-  <p class="lt-f"><span>เรียน</span><span>${esc(toLine(r))}</span></p>
-  <p class="lt-f"><span>อ้างถึง</span><span>หนังสือ${esc(r.agency)} ที่ ${esc(r.docNo)}<br>ลงวันที่ ${fmtLong(r.docDate)}</span></p>
+  <p class="lt-f al"><span>เรื่อง</span><span>แจ้งผลการตรวจสอบวุฒิการศึกษา</span></p>
+  <p class="lt-f al"><span>เรียน</span><span>${esc(toLine(r))}</span></p>
+  <p class="lt-f al"><span>อ้างถึง</span><span>หนังสือ${esc(r.agency)} ที่ ${esc(r.docNo)}<br>ลงวันที่ ${fmtLong(r.docDate)}</span></p>
   ${encs.length ? `<p class="lt-f"><span>สิ่งที่ส่งมาด้วย</span><span class="enc-lines">${encs.map((e, i) => `<span class="lt-cnt"><span>${encs.length > 1 ? (i + 1) + '. ' : ''}${esc(e.name.trim())}</span>${qtyHTML(Math.max(1, parseInt(e.qty, 10) || 1), e.unit || 'ฉบับ')}</span>`).join('')}</span></p>` : ''}
   <p class="lt-p">ตามหนังสือที่อ้างถึง ${esc(r.agency)} ขอความอนุเคราะห์ให้โรงเรียนตรวจสอบวุฒิการศึกษาของบุคคล จำนวน ${n} ราย ${f1 ? 'ตามบัญชีรายชื่อที่แนบมาพร้อมหนังสือ' : 'ตามรายชื่อที่ระบุในหนังสือ'} ความละเอียดแจ้งแล้ว นั้น</p>
   ${li >= 0
@@ -1374,7 +1523,8 @@ function enclHTML(r) {
   <p class="en-cert">ตรวจสอบและรับรองความถูกต้อง</p>
   ${coSignHTML(r, 'in-encl') || `<div class="en-sign"><p>ลงชื่อ ........................................................ ผู้ตรวจสอบ</p><p>(........................................................)</p><p>ตำแหน่ง ........................................................</p></div>`}`);
 }
-const docHTML = r => `<article class="letter" id="letter">${letterHTML(r)}</article>${listIndex(r) >= 0 ? `<article class="letter encl">${enclHTML(r)}</article>` : ''}${pp1CopyPages(r)}`;
+/* ตารางผลอยู่ในหนังสือนำ (แบบที่ 2 ไม่เกิน 5 ราย) = จัดระยะให้กระชับ จบในหน้าเดียว */
+const docHTML = r => `<article class="letter${listAnyIndex(r) < 0 ? ' fit1' : ''}" id="letter">${letterHTML(r)}</article>${listIndex(r) >= 0 ? `<article class="letter encl">${enclHTML(r)}</article>` : ''}${pp1CopyPages(r)}`;
 function enclEditor(r) {
   const lock = r.status === 'replied';
   return `<div class="card encl-editor"><div class="between wrap"><h3>สิ่งที่ส่งมาด้วย</h3>${lock ? '<span class="muted small">ส่งหนังสือแล้ว แก้ไขไม่ได้</span>' : '<button type="button" class="btn btn-outline sm" data-act="encadd">+ เพิ่มรายการ</button>'}</div>
@@ -1382,6 +1532,7 @@ function enclEditor(r) {
     <label class="chk"><input type="radio" name="list-src" data-ch="enclist" data-v="agency" ${listMode(r) === 'agency' ? 'checked' : ''} ${lock ? 'disabled' : ''}> ${ENCL_TITLE} (หน่วยงานแนบมา)</label>
     <label class="chk"><input type="radio" name="list-src" data-ch="enclist" data-v="system" ${listMode(r) === 'system' ? 'checked' : ''} ${lock ? 'disabled' : ''}> ${ENCL_TITLE} (จากระบบของโรงเรียน)</label>
     <label class="chk"><input type="radio" name="list-src" data-ch="enclist" data-v="none" ${!listMode(r) ? 'checked' : ''} ${lock ? 'disabled' : ''}> ไม่แนบบัญชีรายชื่อ</label></div>
+  ${r.form != 1 ? `<p class="notice ${r.enclAuto ? 'info' : 'warn'} small" style="margin:0 0 6px">แบบที่ 2 (หน่วยงานไม่ได้แนบรายชื่อมา): ไม่เกิน ${BODY_MAX} ราย แสดงตารางผลในหนังสือนำหน้าเดียว · เกิน ${BODY_MAX} ราย แนบบัญชีรายชื่อจากระบบของโรงเรียน${r.enclAuto ? ` — ระบบเลือกให้อัตโนมัติ (${r.persons.length} ราย)` : ' — เลือกเองแล้ว'}${!r.enclAuto && !lock ? ' <button type="button" class="linkbtn" data-act="enclauto">กลับไปเลือกอัตโนมัติ</button>' : ''}</p>` : ''}
   <p class="muted small" style="margin:0">${listMode(r) === 'agency' ? 'แนบบัญชีรายชื่อที่หน่วยงานส่งมา สรุปผลเป็นข้อ ๑–๓ ในเนื้อหนังสือ (ไม่แสดงตารางผลรายบุคคลในหนังสือ)' : listMode(r) === 'system' ? 'ระบบสร้างหน้าบัญชีรายชื่อพร้อมผลการตรวจสอบแนบท้ายหนังสือ และสรุปผลเป็นข้อ ๑–๓ ในเนื้อหนังสือ' : 'ผลการตรวจสอบรายบุคคลแสดงเป็นตารางในเนื้อหนังสือ'}</p>
   <datalist id="encl-presets">${ENCL_PRESETS.map(o => `<option value="${esc(o)}"></option>`).join('')}</datalist>
   ${enclList(r).length ? enclList(r).map((e, i) => `<div class="encl-row"><span class="muted">${i + 1}.</span>
@@ -1558,7 +1709,7 @@ function renderModal() {
     ${lock ? '' : `<button type="button" class="btn btn-outline sm" data-act="sent" data-id="${r.id}">บันทึกว่าส่งแล้ว (วิธีอื่น)</button>`}
     <button type="button" class="btn btn-outline sm" data-act="copyletter">คัดลอกข้อความหนังสือ</button></div>
     ${lock ? deliveryLine(r) : ''}${sendPanel(r)}`;
-  m.innerHTML = `<div class="modal-bar"><div><b>หนังสือแจ้งผลการตรวจสอบวุฒิ</b> <span class="muted small">· เลขรับ ${esc(r.regNo)} · ${esc(r.agency)} · ${statusBadge(r)}</span></div>
+  m.innerHTML = `<div class="modal-bar"><div><b>หนังสือแจ้งผลการตรวจสอบวุฒิ</b> <span class="muted small">· เลขรับ ${regLbl(r)} · ${esc(r.agency)} · ${statusBadge(r)}</span></div>
   <div class="row">${!r.outNo ? `<button type="button" class="btn btn-yellow sm" data-act="issue" data-id="${r.id}">ออกเลขหนังสือส่ง</button>` : ''}<button type="button" class="btn btn-primary sm" data-act="pdf">💾 ดาวน์โหลด PDF</button>${canPrint ? `<button type="button" class="btn btn-outline sm" data-act="print">🖨️ พิมพ์</button>` : ''}<button type="button" class="btn btn-dark sm" data-act="closemodal">ปิด</button></div></div>
   <div class="lw">
     <aside class="lw-side" aria-label="ตั้งค่าหนังสือตอบ">
@@ -2051,8 +2202,9 @@ function nextAction(r) {
   if (r.status === 'submitted') return { pri: 0, text: 'คำขอออนไลน์รอรับเข้าทะเบียน', btn: 'เปิดคำขอ', act: 'go', v: 'receive' };
   if (r.status === 'replied' || r.status === 'returned') return null;
   if (!r.persons.length) return { pri: 2, text: 'ยังไม่มีรายชื่อผู้ขอตรวจสอบ — เพิ่มรายชื่อ', btn: 'เพิ่มรายชื่อ', act: 'editreq' };
-  const pend = r.persons.filter(p => p.result === 'pending').length, inc = incompleteOf(r).length;
-  if (pend) return { pri: 2, text: `ตรวจรายชื่อ เหลือ ${pend} จาก ${r.persons.length} ราย`, btn: 'ตรวจสอบ', act: 'openverify' };
+  if (!r.regNo) return { pri: 1, text: 'รับอัตโนมัติจากระบบออนไลน์ — กรอกเลขทะเบียนรับจากงานธุรการ', btn: 'กรอกเลขรับ', act: 'openverify' };
+  const pend = r.persons.filter(unconf).length, inc = incompleteOf(r).length, nm = r.persons.filter(p => p.result === 'pending' || (p.confirmed === false && p.result === 'notfound')).length;
+  if (pend) return { pri: 2, text: `ยืนยันผลตรวจอัตโนมัติ ${pend} จาก ${r.persons.length} ราย${nm ? ` (ตรวจสอบเอง ${nm} ราย)` : ''}`, btn: 'ตรวจทาน', act: 'openverify' };
   if (inc) return { pri: 2, text: `เติมเลข ปพ.1 / วันที่จบ ${inc} ราย ก่อนออกหนังสือ`, btn: 'เติมข้อมูล', act: 'openverify' };
   const pm = wantsPP1(r) ? pp1Missing(r).length : 0;
   if (pm) return { pri: 2, text: `แนบสำเนา ปพ.1 อีก ${pm} ราย (หน่วยงานขอสำเนาประกอบ)`, btn: 'แนบสำเนา', act: 'openverify' };
@@ -2067,7 +2219,7 @@ function workQueue(limit = 8) {
   const q = queueItems();
   if (!q.length) return `<div class="queue-empty">${ic('check')}<div><b>ไม่มีงานค้าง</b><p class="muted small">หนังสือทุกฉบับส่งหนังสือตอบแล้ว</p></div></div>`;
   return `<ol class="queue">${q.slice(0, limit).map(({ r, a, age }) => `<li class="q-item ${age.over ? 'is-over' : a.pri === 0 ? 'is-new' : ''}">
-    <div class="q-main"><div class="q-top"><b class="q-reg">${r.regNo ? esc(r.regNo) : 'ออนไลน์'}</b>${ageChip(r)}</div>
+    <div class="q-main"><div class="q-top"><b class="q-reg">${r.regNo ? esc(r.regNo) : 'รอเลขรับ'}</b>${ageChip(r)}</div>
     <div class="q-agency">${esc(r.agency)}</div><div class="q-next">${esc(a.text)}</div></div>
     <button type="button" class="btn ${a.pri <= 1 || age.over ? 'btn-primary' : 'btn-outline'} sm" data-act="${a.act}" ${a.v ? `data-v="${a.v}"` : ''} data-id="${r.id}">${a.btn}</button></li>`).join('')}</ol>
     ${q.length > limit ? `<p class="muted small" style="margin:10px 0 0">และอีก ${q.length - limit} ฉบับ <button type="button" class="linkbtn" data-act="go" data-v="track">ดูทั้งหมด</button></p>` : ''}`;
@@ -2440,13 +2592,14 @@ const manualOpenFor = (r, i) => U.manual && U.manual.r === r.id && U.manual.i ==
 function manualBtn(r, p, i) {
   if (r.status === 'replied' || manualOpenFor(r, i)) return '';
   if (getStu(p.matchedId) && p.result !== 'notfound') return '';
-  return `<div style="margin-top:8px"><button type="button" class="btn btn-outline sm" data-act="manualopen" data-r="${r.id}" data-i="${i}">✍️ ตรวจสอบเอง (กรณีไม่พบในฐานข้อมูล)</button></div>`;
+  return `<div style="margin-top:8px"><button type="button" class="btn ${p.needManual || p.result === 'notfound' ? 'btn-primary' : 'btn-outline'} sm" data-act="manualopen" data-r="${r.id}" data-i="${i}">✍️ ตรวจสอบเอง ${p.needManual ? `(จบก่อนปี ${dbFromYear()} ไม่มีในฐานข้อมูล)` : '(กรณีไม่พบในฐานข้อมูล)'}</button></div>`;
 }
 function manualRow(r, p, i) {
   const m = p.manualCheck || {}, lv = ['ม.3', 'ม.6'];
   const v = (k, d = '') => esc(m[k] ?? d);
   return `<tr class="manual-row"><td></td><td colspan="6"><div class="manual-box" data-r="${r.id}" data-i="${i}">
     <div class="between wrap"><b>✍️ ตรวจสอบเองโดยเจ้าหน้าที่ · ${esc(pName(p))}</b><button type="button" class="icon-btn" data-act="manualclose" aria-label="ปิด">✕</button></div>
+    ${p.needManual ? `<p class="notice info" style="margin:0">ผู้นี้จบปี พ.ศ. ${gradYearBE(p)} ซึ่งก่อนปีที่มีในฐานข้อมูลอิเล็กทรอนิกส์ (ตั้งแต่ ${dbFromYear()}) ตรวจจาก ปพ.3 ต้นฉบับ สมุดทะเบียนนักเรียน หรือ ปพ.1 สำเนาคู่ฉบับ ของรุ่นนั้น</p>` : ''}
     <p class="muted small" style="margin:0">ตรวจกับหลักฐานของโรงเรียนแล้วกรอกผล ถ้า "สำเร็จการศึกษาจริง" ระบบจะเพิ่มรายชื่อนี้เข้าฐานข้อมูลผู้สำเร็จการศึกษาให้ และใช้ข้อมูลนี้ในหนังสือตอบ</p>
     <div class="grid g4">
       <div><label for="mc-sid">เลขประจำตัวนักเรียน</label><input id="mc-sid" value="${v('sid', p.sid)}" inputmode="numeric"></div>
@@ -2480,7 +2633,7 @@ function manualSave() {
     else { s = Object.assign({ id: uid('s'), dob: '', father: '', mother: '' }, data); S.students.push(s); }
     Object.assign(p, { matchedId: s.id, result: 'found' });
   } else Object.assign(p, { result: res });
-  p.manual = true; p.manualCheck = m; p.note = val('mc-note');
+  p.manual = true; p.confirmed = true; p.needManual = false; p.manualCheck = m; p.note = val('mc-note');
   p.auto = `ตรวจสอบเองโดยเจ้าหน้าที่ · หลักฐาน: ${m.evidence || '-'}`;
   addTL(r, `ตรวจสอบเอง: ${pName(p)} → ${RESULT[p.result].t} (หลักฐาน: ${m.evidence || '-'})`);
   U.manual = null; refreshStatus(r); save(); render();
@@ -2495,11 +2648,11 @@ function topBar() {
   return U.mode === 'home' ? `<button type="button" data-act="role" data-r="staff">เจ้าหน้าที่</button><button type="button" data-act="role" data-r="agency">หน่วยงานภายนอก</button>` : `<button type="button" data-act="home">← หน้าแรก</button>`;
 }
 function render() {
-  const ft = $('.footer'); if (ft) ft.textContent = `WNM-Educational Measurement and Evaluation Section Ver.1 · ระบบรับ–ส่งและตรวจสอบวุฒิการศึกษา · ${CLOUD ? 'ข้อมูลเก็บบนระบบออนไลน์ (Supabase)' : 'โหมดทดลอง ข้อมูลเก็บในเบราว์เซอร์เครื่องนี้เท่านั้น'}`;
+  const ft = $('.footer'); if (ft) ft.textContent = `WNM-Educational Measurement and Evaluation Section ${APP_VERSION.no}${APP_VERSION.at ? ` (ปรับปรุง ${APP_VERSION.at} น.)` : ''} · ระบบรับ–ส่งและตรวจสอบวุฒิการศึกษา · ${CLOUD ? 'ข้อมูลเก็บบนระบบออนไลน์ (Supabase)' : 'โหมดทดลอง ข้อมูลเก็บในเบราว์เซอร์เครื่องนี้เท่านั้น'}`;
   $('#modeSeg').innerHTML = topBar();
   const nav = $('#nav'), acc = curAgency();
   let items = '';
-  if (U.mode === 'staff' && U.staffAuth) { const n = inboxReqs().length; items = VIEWS.map(([k, t, step]) => `${NAV_SEP_BEFORE.includes(k) ? '<span class="nav-sep" aria-hidden="true"></span>' : ''}<button type="button" class="${U.view === k ? 'on' : ''}" data-act="go" data-v="${k}" title="${step ? 'ขั้นตอนที่ ' + step : ''}">${t}${k === 'receive' && n ? ` <span class="badge danger">${n}</span>` : ''}</button>`).join(''); }
+  if (U.mode === 'staff' && U.staffAuth) { autoReceive(); const n = waitReg().length; items = VIEWS.map(([k, t, step]) => `${NAV_SEP_BEFORE.includes(k) ? '<span class="nav-sep" aria-hidden="true"></span>' : ''}<button type="button" class="${U.view === k || NAV_GROUP[U.view] === k ? 'on' : ''}" data-act="go" data-v="${k}" title="${step ? 'ขั้นตอนที่ ' + step : ''}">${t}${k === 'receive' && n ? ` <span class="badge danger">${n}</span>` : ''}</button>`).join(''); }
   else if (U.mode === 'agency' && acc) { const un = agencyEvents(acc).filter(x => x.e.t > (acc.lastSeen || 0)).length; items = AVIEWS.map(([k, t]) => `<button type="button" class="${U.aView === k || (k === 'status' && U.aView === 'detail') ? 'on' : ''}" data-act="ago" data-v="${k}">${t}${k === 'home' && un ? ` <span class="badge danger">${un}</span>` : ''}</button>`).join(''); }
   nav.hidden = !items; nav.innerHTML = items;
   const nb = $('.navbar'); if (nb) nb.hidden = !items;
@@ -2547,7 +2700,7 @@ const ACT = {
   pickstu: b => {
     const r = getReq(b.dataset.r), p = r && r.persons[+b.dataset.i], s = getStu(b.dataset.s); if (!p || !s) return;
     const m = compareWith(p, s);
-    Object.assign(p, { matchedId: s.id, result: m.result, auto: 'เลือกจากรายชื่อใกล้เคียง · ' + m.auto, manual: true });
+    Object.assign(p, { matchedId: s.id, result: m.result, auto: 'เลือกจากรายชื่อใกล้เคียง · ' + m.auto, manual: true, confirmed: true, needManual: false });
     addTL(r, `เลือกจับคู่ ${pName(p)} กับ ${fullName(s)} (รหัส ${s.sid})`);
     refreshStatus(r); save(); render(); toast(`จับคู่กับ ${fullName(s)} แล้ว ตรวจผลอีกครั้งก่อนยืนยัน`);
   },
@@ -2632,12 +2785,32 @@ const ACT = {
   canceledit: () => { U.draft = newDraft(); render(); toast('ยกเลิกการแก้ไขแล้ว'); },
   delreq: b => { if (!armed(b, 'ยืนยันลบ?')) return; S.requests = S.requests.filter(r => r.id !== b.dataset.id); save(); render(); toast('ลบหนังสือแล้ว'); },
   automatch: b => {
-    const r = getReq(b.dataset.id); let n = 0;
-    r.persons.forEach(p => { if (!p.manual) { Object.assign(p, matchPerson(p)); n++; } });
-    addTL(r, `ตรวจเทียบฐานข้อมูลอัตโนมัติ ${n} ราย`, false);
-    refreshStatus(r); save(); render(); toast(`ตรวจอัตโนมัติ ${n} ราย กรุณาตรวจทานผล`);
+    const r = getReq(b.dataset.id), n = autoCheckReq(r);
+    save(); render(); toast(`ตรวจเทียบฐานข้อมูล ${n} ราย กรุณาตรวจทานแล้วกดยืนยันผล`);
   },
-  letter: b => { const lr = getReq(b.dataset.id); if (lr && lr.status !== 'replied' && incompleteOf(lr).length) { toast('ข้อมูลผู้สำเร็จการศึกษายังไม่ครบ (ปพ.1 / วันที่จบ) กรอกในหน้าตรวจสอบก่อน', 'err'); U.reqId = lr.id; go('verify'); return; } U.letterId = b.dataset.id; U.panel = ''; U.mail = null; U.post = null; U.modalView = 'letter'; renderModal(); },
+  confirmp: b => {
+    const r = getReq(b.dataset.r), p = r && r.persons[+b.dataset.i]; if (!p) return;
+    if (p.result === 'pending') return toast('เลือกผลการตรวจสอบ หรือกด "ตรวจสอบเอง" ก่อนยืนยัน', 'err');
+    p.confirmed = true; addTL(r, `ยืนยันผล ${pName(p)}: ${RESULT[p.result].t}`, false);
+    refreshStatus(r); save(); render();
+  },
+  confirmall: b => {
+    const r = getReq(b.dataset.id); if (!r) return;
+    const list = r.persons.filter(p => p.confirmed === false && p.result === 'found');
+    list.forEach(p => { p.confirmed = true; });
+    addTL(r, `ยืนยันผลที่ตรงกับฐานข้อมูล ${list.length} ราย`, false);
+    refreshStatus(r); save(); render(); toast(`ยืนยันผล ${list.length} ราย`);
+  },
+  savereg: b => {
+    const r = getReq(b.dataset.id), k = b.dataset.k; if (!r) return;
+    const inp = $(`#${k}-reg-${r.id}`), reg = thaiDigits(inp?.value || '').trim(), dt = $(`#${k}-date-${r.id}`)?.value || r.recvDate;
+    if (!reg) { toast('กรอกเลขทะเบียนรับจากงานธุรการ', 'err'); inp?.focus(); return; }
+    if (regTaken(reg, r.id)) return toast(`เลขทะเบียนรับ ${reg} ถูกใช้แล้ว`, 'err');
+    r.regNo = reg; r.recvDate = dt; if (r.dueText) r.dueDate = parseDue(r.dueText, dt);
+    addTL(r, `ลงทะเบียนรับ เลขทะเบียนรับ ${reg}`, true);
+    save(); render(); toast(`บันทึกเลขทะเบียนรับ ${reg} แล้ว`);
+  },
+  letter: b => { const lr = getReq(b.dataset.id); if (lr && !lr.regNo && lr.status !== 'replied') { toast('กรอกเลขทะเบียนรับจากงานธุรการก่อนสร้างหนังสือตอบ', 'err'); U.reqId = lr.id; go('verify'); return; } if (lr && lr.status !== 'replied' && incompleteOf(lr).length) { toast('ข้อมูลผู้สำเร็จการศึกษายังไม่ครบ (ปพ.1 / วันที่จบ) กรอกในหน้าตรวจสอบก่อน', 'err'); U.reqId = lr.id; go('verify'); return; } U.letterId = b.dataset.id; U.panel = ''; U.mail = null; U.post = null; U.modalView = 'letter'; renderModal(); },
   closemodal: () => { U.letterId = null; U.panel = ''; U.mail = null; U.post = null; U.modalView = 'letter'; renderModal(); render(); },
   issue: b => { const r = getReq(b.dataset.id); if (!issueNumber(r)) return; save(); renderModal(); toast(`ออกเลขหนังสือส่ง ${S.settings.docPrefix}${r.outNo}`); },
   sent: b => { const r = getReq(b.dataset.id); if (!markSent(r, 'other', {})) return; render(); toast('บันทึกการส่งหนังสือแล้ว'); },
@@ -2708,6 +2881,38 @@ const ACT = {
   copyletter: () => copyText(($('#letterDoc') || $('#envelope')).innerText, 'คัดลอกข้อความหนังสือแล้ว'),
   toggleadd: () => { U.showAdd = !U.showAdd; render(); if (U.showAdd) $('#as-sid')?.focus(); },
   delstu: b => { if (!armed(b, 'ยืนยัน?')) return; S.students = S.students.filter(s => s.id !== b.dataset.id); S.fees = S.fees.filter(f => f.studentId !== b.dataset.id); save(); $('#gd-table').innerHTML = gradsTable(); toast('ลบรายชื่อแล้ว'); },
+  dbimport: async b => {
+    const files = [...($('#db-files')?.files || [])];
+    if (!files.length) return toast('เลือกไฟล์ก่อน (เลือกได้หลายไฟล์)', 'err');
+    const selLv = $('#db-level').value, grad = parseDateAny($('#db-date').value), old = b.textContent, out = [];
+    b.disabled = true;
+    for (const [i, f] of files.entries()) {
+      b.textContent = `กำลังอ่าน ${i + 1}/${files.length}...`;
+      const lv = levelFromName(f.name) || selLv;
+      try {
+        let line;
+        if (/\.(csv|txt)$/i.test(f.name)) {
+          const text = await readText(f), rows = parseCSV(text);
+          if (isStudentDB(rows)) { const r = importStudentDB(rows, lv, grad, f.name); line = `ฐานข้อมูลนักเรียน${lv ? ' ' + lv : ''} · เพิ่ม ${r.added} · อัปเดต ${r.updated}${r.fees ? ` · ค้างชำระ ${r.fees} ราย` : ''}`; }
+          else { const r = importGradCSV(text); line = `CSV · เพิ่ม ${r.added} · อัปเดต ${r.updated}${r.skipped ? ` · ข้าม ${r.skipped}` : ''}`; }
+        } else {
+          const rows = await fileToMatrix(f);
+          if (isStudentDB(rows)) { const r = importStudentDB(rows, lv, grad, f.name); line = `ฐานข้อมูลนักเรียน${lv ? ' ' + lv : ''} · เพิ่ม ${r.added} · อัปเดต ${r.updated}${r.fees ? ` · ค้างชำระ ${r.fees} ราย` : ''}${r.noPP1.length ? ` · ไม่มีเลข ปพ.1 ${r.noPP1.length} ราย` : ''}`; }
+          else {
+            if (!lv) throw new Error('ไฟล์ ปพ.3 ต้องระบุระดับชั้น — เลือก "ระดับชั้นที่จบ" หรือใส่ ม.3 / ม.6 ในชื่อไฟล์');
+            const r = await importPP3(f, lv, grad);
+            if (!r.total) throw new Error('ไม่พบแถวข้อมูลนักเรียน (ต้องเป็นไฟล์ฐานข้อมูลของงานทะเบียน ปพ.3 หรือ CSV)');
+            line = `ปพ.3 ${lv} · ${r.total} ราย · เพิ่ม ${r.added} · อัปเดต ${r.updated}${r.gradDate ? ' · จบ ' + fmtLong(r.gradDate) : ' · <b>ไม่พบวันที่จบ</b>'}`;
+          }
+        }
+        out.push(`<li>✅ <b>${esc(f.name)}</b> — ${line}</li>`);
+      } catch (e) { out.push(`<li>❌ <b>${esc(f.name)}</b> — ${esc(e.message || e)}</li>`); }
+    }
+    save();
+    const bad = out.filter(x => x.startsWith('<li>❌')).length;
+    U.dbMsg = `<div class="notice ${bad ? 'warn' : 'ok'}" style="margin:0"><b>นำเข้า ${files.length - bad} จาก ${files.length} ไฟล์ · ฐานข้อมูลมีทั้งหมด ${S.students.length.toLocaleString('th-TH')} ราย</b><ul class="imp-list">${out.join('')}</ul></div>`;
+    render();
+  },
   stuimp: async b => {
     const f = $('#si-file').files[0];
     if (!f) return toast('เลือกไฟล์ฐานข้อมูลนักเรียนก่อน', 'err');
@@ -2746,24 +2951,28 @@ const ACT = {
     render();
   },
   csvimp: async () => {
-    const f = $('#gd-csv').files[0];
+    const f = $('#gd-csv')?.files[0];
     const text = f ? await readText(f) : $('#gd-csvtext').value;
     if (!String(text).trim()) return toast('เลือกไฟล์ CSV หรือวางข้อความก่อน', 'err');
     const r = importGradCSV(text);
-    U.lastImport = `<p class="notice ok">นำเข้า CSV · เพิ่มใหม่ ${r.added} · อัปเดต ${r.updated}${r.skipped ? ' · ข้าม ' + r.skipped + ' แถว (ไม่มีชื่อ)' : ''}</p>`;
+    U.dbMsg = U.lastImport = `<p class="notice ok">นำเข้า CSV · เพิ่มใหม่ ${r.added} · อัปเดต ${r.updated}${r.skipped ? ' · ข้าม ' + r.skipped + ' แถว (ไม่มีชื่อ)' : ''}</p>`;
     render();
   },
   feeimport: async b => {
-    const f = $('#fi-file').files[0], text = $('#fi-text').value;
-    if (!f && !text.trim()) return toast('เลือกไฟล์หรือวางข้อความก่อน', 'err');
+    const fs = [...$('#fi-file').files], text = $('#fi-text').value;
+    if (!fs.length && !text.trim()) return toast('เลือกไฟล์หรือวางข้อความก่อน', 'err');
     b.disabled = true;
     try {
-      const rows = f ? await fileToMatrix(f) : parseCSV(text);
-      const res = importFees(rows);
+      const res = { added: 0, updated: 0, miss: [] };
+      const sets = fs.length ? await Promise.all(fs.map(f => fileToMatrix(f))) : [parseCSV(text)];
+      const mx = [];
+      sets.forEach((rows, k) => { const m = importFeeMatrix(rows); if (m) { mx.push([fs[k] ? fs[k].name : 'ข้อความ', m]); return; } const x = importFees(rows); res.added += x.added; res.updated += x.updated; res.miss.push(...x.miss); });
+      if (mx.length && mx.length === sets.length) { U.feeMsg = mx.map(([n, m]) => `<p class="notice ${m.orphan || m.mism.length ? 'warn' : 'ok'}" style="margin:0 0 8px"><b>${esc(n)}</b> — อ่าน ${m.sheets} ชีต · นักเรียน ${m.students} ราย · มียอดค้าง <b>${m.debt} ราย</b> รวม ฿${money(m.total)}${m.cleared ? ` · ชำระแล้ว (เดิมค้าง) ${m.cleared} รายการ` : ''}<br>ผูกกับฐานข้อมูลผู้สำเร็จการศึกษาแล้ว ${m.linked} ราย${m.orphan ? ` · <b>ยังไม่มีในฐานข้อมูล ${m.orphan} ราย</b> (เก็บยอดไว้แล้ว ระบบจะผูกให้อัตโนมัติเมื่อนำเข้าฐานข้อมูลนักเรียนรายนั้น)` : ''}${m.mism.length ? `<br>ยอดรวมในไฟล์ไม่ตรงกับผลรวมรายภาค ${m.mism.length} ราย (ใช้ยอดรายภาค): ${m.mism.slice(0, 5).map(esc).join(', ')}${m.mism.length > 5 ? ' …' : ''}` : ''}</p>`).join(''); render(); return; }
       U.feeMsg = `<p class="notice ${res.miss.length ? 'warn' : 'ok'}" style="margin:0">เพิ่มใหม่ ${res.added} · อัปเดต ${res.updated}${res.miss.length ? `<br>ไม่พบในฐานข้อมูลผู้สำเร็จการศึกษา ${res.miss.length} แถว: ${res.miss.slice(0, 12).map(esc).join(', ')}${res.miss.length > 12 ? ' …' : ''}` : ''}</p>`;
     } catch (e) { U.feeMsg = `<p class="notice danger" style="margin:0">อ่านไฟล์ไม่สำเร็จ: ${esc(e.message || e)}</p>`; }
     render();
   },
+  enclauto: () => { const r = getReq(U.letterId); if (!r) return; r.enclAuto = true; save(); renderModal(); },
   payfull: b => { const f = S.fees.find(x => x.id === b.dataset.id); f.paid = f.amount; save(); render(); toast('บันทึกรับชำระครบแล้ว'); },
   delfee: b => { if (!armed(b, 'ยืนยัน?')) return; S.fees = S.fees.filter(f => f.id !== b.dataset.id); save(); render(); },
   copycsv: () => {
@@ -2837,6 +3046,7 @@ const IN = {
   feq: el => { U.fq = el.value; $('#fe-table').innerHTML = feesTable(); }
 };
 const CH = {
+  dbpick: el => { const fs = [...el.files], h = $('#db-picked'); if (h) h.innerHTML = fs.length ? `เลือก ${fs.length} ไฟล์: ${fs.map(f => esc(f.name) + (levelFromName(f.name) ? ` <span class="badge info">${levelFromName(f.name)}</span>` : '')).join(' · ')}` : ''; },
   restore: async el => {
     const f = el.files[0]; if (!f) return;
     try {
@@ -2866,6 +3076,7 @@ const CH = {
     const r = getReq(U.letterId), v = el.dataset.v;
     const rest = enclList(r).filter(e => !listKind(e));
     r.enclosures = v === 'none' ? rest : [{ name: ENCL_TITLE, qty: 1, unit: 'ฉบับ', kind: v }, ...rest];
+    r.enclAuto = false;
     save(); renderModal();
   },
   signedup: async el => {
@@ -2959,7 +3170,7 @@ const CH = {
   vfreq: el => { U.reqId = el.value || null; render(); },
   res: el => {
     const r = getReq(el.dataset.r), p = r.persons[+el.dataset.i];
-    p.result = el.value; p.manual = true;
+    p.result = el.value; p.manual = true; p.confirmed = el.value !== 'pending';
     addTL(r, `บันทึกผล ${pName(p)}: ${RESULT[p.result].t}`, false);
     refreshStatus(r); save(); render();
   },
@@ -3003,8 +3214,8 @@ const FORMS = {
       const pc = persons.length !== old.persons.length || persons.some((p, i) => p !== old.persons[i] && !(old.persons[i] && same(old.persons[i], p) && p.result === old.persons[i].result));
       if (pc) changed.push('รายชื่อผู้ขอตรวจสอบ');
       old.persons = persons;
-      if (registered(old) && old.status !== 'letter') { const pend = persons.filter(p => p.result === 'pending').length; old.status = pend === 0 ? 'done' : pend < persons.length ? 'checking' : 'received'; }
-      else if (old.status === 'letter' && persons.some(p => p.result === 'pending')) old.status = 'checking';
+      persons.filter(p => p.result === 'pending' && p.confirmed === undefined).forEach(autoCheck);
+      if (registered(old)) { const pend = persons.filter(unconf).length; old.status = pend === 0 ? 'done' : pend < persons.length ? 'checking' : 'received'; }
       addTL(old, changed.length ? `แก้ไขข้อมูลรับหนังสือ (${changed.join(', ')})` : 'บันทึกข้อมูลรับหนังสือ (ไม่มีการเปลี่ยนแปลง)');
       save();
       U.draft = newDraft(); U.reqId = old.id; go('verify'); toast(changed.length ? `บันทึกการแก้ไขหนังสือเลขรับ ${reg} แล้ว` : 'ไม่มีข้อมูลที่เปลี่ยนแปลง');
@@ -3012,6 +3223,7 @@ const FORMS = {
     }
     const r = { id: uid('r'), regNo: reg, recvDate: d.date || todayISO(), agency: d.agency.trim(), to: d.to.trim(), docNo: d.docno.trim(), docDate: d.docdate, email: d.email.trim().toLowerCase(), aaddr: (d.aaddr || '').trim(), aphone: (d.aphone || '').trim(), dueText: (d.due || '').trim(), replyHow: (d.how || '').trim(), dueDate: parseDue(d.due, d.date || todayISO()), form: d.form, file: d.form == 1 ? d.file : '', persons, status: 'received', outNo: '', outDate: '', sentDate: '', timeline: [] };
     addTL(r, `รับหนังสือ เลขทะเบียนรับ ${reg}`, true);
+    autoCheckReq(r);
     S.requests.push(r); save();
     U.draft = newDraft(); U.reqId = r.id; go('verify'); toast(`บันทึกรับหนังสือ ${reg} แล้ว`);
   },
@@ -3035,6 +3247,7 @@ const FORMS = {
     ['school', 'address', 'docPrefix', 'office', 'director', 'directorTitle', 'phone', 'email', 'gasUrl', 'gasKey', 'debtNote'].forEach(k => { st[k] = $('#st-' + k).value.trim(); });
     st.outNoYear = $('#st-outNoYear').value === '1';
     st.slaDays = Math.min(60, Math.max(1, parseInt($('#st-slaDays').value, 10) || 7));
+    if ($('#st-dbFromYear')) st.dbFromYear = Math.min(2700, Math.max(2400, parseInt(thaiDigits($('#st-dbFromYear').value), 10) || 2562));
     st.thaiNum = $('#st-thaiNum').checked;
     st.letterGpa = $('#st-letterGpa').checked;
     const of = parseInt($('#st-outFrom').value, 10), ot = parseInt($('#st-outTo').value, 10), nx = parseInt($('#st-nextOut').value, 10);
