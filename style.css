@@ -276,7 +276,7 @@ select.r-mismatch{background:var(--info-bg);color:var(--info-fg)}select.r-notfou
 .letter p{margin:0}
 .garuda{display:block;height:3cm;width:auto;max-width:none;margin:0 auto}
 .letter .lt-head{display:flex;justify-content:space-between;align-items:flex-start;gap:.5cm;margin-top:-.55cm}
-.lt-addr{width:7cm;flex:none}
+.lt-addr{width:max-content;max-width:8.5cm;flex:none;margin-left:auto;text-align:left}
 .letter .lt-date{margin:6pt 0 0 8cm}
 .lt-f{display:grid;grid-template-columns:auto 1fr;column-gap:.45cm;margin-top:6pt!important}
 .lt-p{text-indent:2.5cm;margin-top:6pt!important}
