@@ -908,7 +908,7 @@ function quickResults() {
   const q = U.vq.trim();
   if (!q) return '';
   const qd = digits(q), qn = normName(q);
-  const hits = S.students.filter(s => (qd.length >= 3 && (sidKey(s.sid).includes(sidKey(qd)) || s.cid.includes(qd))) || (qn && normName(fullName(s)).includes(qn))).slice(0, 8);
+  const hits = S.students.filter(s => stuMatch(s, q)).slice(0, 12);
   if (!hits.length) return `<p class="muted small" style="margin:12px 0 0">ไม่พบ "${esc(q)}" ในฐานข้อมูลผู้สำเร็จการศึกษา</p>`;
   return `<div class="tablewrap" style="margin-top:12px"><table><thead><tr><th>รหัส</th><th>ชื่อ-สกุล</th><th>ระดับ</th><th>วันที่จบ</th><th>GPA</th><th>ปพ.1 ชุดที่/เลขที่</th><th>ค้างชำระ</th></tr></thead><tbody>
   ${hits.map(s => { const o = outstanding(s.id); return `<tr><td>${esc(s.sid)}</td><td>${esc(fullName(s))}</td><td>${esc(s.level)}</td><td>${fmtBE(s.gradDate)}</td><td>${esc(s.gpa || '-')}</td><td>${s.pp1Set || s.pp1No ? `${esc(s.pp1Set || '-')} / ${esc(s.pp1No || '-')}` : '-'}</td><td>${o > 0 ? `<span class="badge danger">฿${money(o)}</span>` : '<span class="badge ok">ไม่มี</span>'}</td></tr>`; }).join('')}</tbody></table></div>`;
@@ -924,7 +924,7 @@ function vVerify() {
   const opts = REQS().sort(byRecv).map(r => `<option value="${r.id}" ${r.id === U.reqId ? 'selected' : ''}>${esc(r.regNo)} · ${esc(r.agency)} (${r.persons.length} ราย · ${STATUS[r.status].t})</option>`).join('');
   const r = getReq(U.reqId);
   return `<div class="pagehead"><h1>ตรวจสอบและบันทึกผลรายบุคคล</h1><p class="muted">ขั้นตอนที่ 2 · เทียบรายชื่อในหนังสือกับฐานข้อมูลผู้สำเร็จการศึกษา แล้วยืนยันผลทีละราย</p></div>
-  <div class="card"><div><label for="vf-req">เลือกหนังสือที่จะตรวจสอบ</label><select id="vf-req" data-ch="vfreq"><option value="">— เลือกหนังสือ —</option>${opts}</select></div><p class="muted small" style="margin:8px 0 0">ค้นหาผู้สำเร็จการศึกษารายบุคคลได้จากปุ่ม "ค้นหา" บนแถบหัว (Ctrl K)</p></div>
+  <div class="card"><div><label for="vf-req">เลือกหนังสือที่จะตรวจสอบ</label><select id="vf-req" data-ch="vfreq"><option value="">— เลือกหนังสือ —</option>${opts}</select></div><div style="margin-top:12px"><label for="vf-q">ค้นหาผู้สำเร็จการศึกษาในฐานข้อมูล</label><input id="vf-q" data-in="vfq" value="${esc(U.vq)}" placeholder="รหัส / เลขบัตร / ชื่อ-สกุล / ระดับชั้น / วันที่จบ / GPA / ปพ.1 ชุดที่-เลขที่ / ค้างชำระ"></div><div id="vf-quick">${quickResults()}</div></div>
   ${r ? verifyPanel(r) : `<div class="card empty">เลือกหนังสือจากรายการด้านบนเพื่อเริ่มตรวจสอบ</div>`}`;
 }
 const DEBT_NOTE_DEFAULT = 'โปรดแจ้งเจ้าของประวัติติดต่องานวัดและประเมินผลโดยเร็ว';
@@ -1004,9 +1004,27 @@ function vTrack() {
   <div class="card" id="tr-detail">${trackDetail(getReq(U.trackId))}</div></div>`;
 }
 
+/* ค้นหาผู้สำเร็จการศึกษาได้ทุกคอลัมน์: รหัส เลขบัตร ชื่อ-สกุล ระดับชั้น วันที่จบ GPA ปพ.1 ชุดที่/เลขที่ ค้างชำระ
+   พิมพ์หลายคำคั่นด้วยเว้นวรรค = ต้องตรงทุกคำ เช่น "ม.6 2568" หรือ "สมชาย ค้างชำระ" */
+const sNorm = v => thaiDigits(String(v ?? '')).toLowerCase().replace(/\s+/g, '');
+function stuHay(s) {
+  const o = outstanding(s.id), gd = s.gradDate;
+  const parts = [s.sid, sidKey(s.sid), s.cid, maskCid(s.cid), fullName(s), s.fname + s.lname, s.level, String(s.level || '').replace('.', ''),
+    gd && fmtBE(gd), gd && fmtLong(gd), gd && fmtShortDate(gd), gd && String(+gd.slice(0, 4) + 543), gd && gd.slice(0, 4),
+    s.gpa && 'gpa' + s.gpa, s.gpa, s.pp1Set, s.pp1No, s.pp1Set && s.pp1No && s.pp1Set + '/' + s.pp1No, s.pp1Set && s.pp1No ? 'ปพ.1ครบ' : 'ไม่มีปพ.1 ขาดปพ.1',
+    o > 0 ? 'ค้างชำระ ' + o + ' ' + money(o) : 'ชำระครบ'];
+  return parts.filter(Boolean).map(sNorm).join('|');
+}
+function stuMatch(s, q) {
+  const toks = String(q || '').trim().split(/\s+/).filter(Boolean); if (!toks.length) return true;
+  const hay = stuHay(s);
+  /* ชื่อ-สกุลที่พิมพ์มีเว้นวรรค ให้ลองแบบติดกันด้วย */
+  if (toks.length > 1 && hay.includes(sNorm(q))) return true;
+  return toks.every(t => { const n = sNorm(t); if (hay.includes(n)) return true; const d = digits(t); return d.length >= 3 && d === n && (sidKey(s.sid).startsWith(sidKey(d)) || (d.length >= 4 && String(s.cid || '').includes(d))); });
+}
 function gradsTable() {
   const q = U.gq.trim(), qd = digits(q), qn = normName(q);
-  const list = S.students.filter(s => (!U.glevel || s.level === U.glevel) && (!q || (qd.length >= 2 && (sidKey(s.sid).includes(sidKey(qd)) || s.cid.includes(qd))) || (qn && normName(fullName(s)).includes(qn))))
+  const list = S.students.filter(s => (!U.glevel || s.level === U.glevel) && (!q || stuMatch(s, q)))
     .sort((a, b) => (b.gradDate || '').localeCompare(a.gradDate || '') || a.sid.localeCompare(b.sid));
   const shown = list.slice(0, 300);
   return `<p class="muted small">แสดง ${shown.length.toLocaleString('th-TH')} จาก ${list.length.toLocaleString('th-TH')} ราย${list.length > 300 ? ' (พิมพ์ค้นหาเพื่อกรอง)' : ''}</p>
@@ -1098,7 +1116,7 @@ function vGrads() {
       <div><label for="gd-csvtext">หรือวางข้อความ CSV</label><textarea id="gd-csvtext" rows="4" placeholder="รหัสประจำตัว,ชื่อ-สกุล,ระดับชั้นที่จบ,วันที่จบ&#10;10301,นางสาวตัวอย่าง ใจดี,ม.6,31/03/2569"></textarea></div>
       <button type="button" class="btn btn-blue" data-act="csvimp">นำเข้า CSV</button></div></div>
   </details>
-  <div class="card"><div class="between wrap"><h2 style="margin:0">รายชื่อผู้สำเร็จการศึกษา</h2><div class="row"><input id="gd-q" data-in="gdq" value="${esc(U.gq)}" placeholder="ค้นหา รหัส / เลขบัตร / ชื่อ" style="width:220px"><select id="gd-flevel" data-ch="gdlevel" aria-label="กรองระดับชั้น" style="width:auto">${lv.map(o => `<option value="${o}" ${U.glevel === o ? 'selected' : ''}>${o || 'ทุกระดับ'}</option>`).join('')}</select><button type="button" class="btn btn-outline sm" data-act="toggleadd">${U.showAdd ? 'ปิดฟอร์ม' : '+ เพิ่มรายบุคคล'}</button></div></div>
+  <div class="card"><div class="between wrap"><h2 style="margin:0">รายชื่อผู้สำเร็จการศึกษา</h2><div class="row"><input id="gd-q" data-in="gdq" value="${esc(U.gq)}" placeholder="ค้นหา รหัส / เลขบัตร / ชื่อ / ระดับ / วันที่จบ / GPA / ปพ.1 / ค้างชำระ" style="width:340px"><select id="gd-flevel" data-ch="gdlevel" aria-label="กรองระดับชั้น" style="width:auto">${lv.map(o => `<option value="${o}" ${U.glevel === o ? 'selected' : ''}>${o || 'ทุกระดับ'}</option>`).join('')}</select><button type="button" class="btn btn-outline sm" data-act="toggleadd">${U.showAdd ? 'ปิดฟอร์ม' : '+ เพิ่มรายบุคคล'}</button></div></div>
   <form class="addform" data-form="addstu" ${U.showAdd ? '' : 'hidden'} novalidate>
     <div><label for="as-sid">รหัสประจำตัว</label><input id="as-sid" required></div>
     <div><label for="as-cid">เลขบัตรประชาชน</label><input id="as-cid" inputmode="numeric"></div>
@@ -1382,11 +1400,12 @@ const SIGN_ROLES = {
   measure: { label: 'หัวหน้างานวัดและประเมินผล', pos: 'หัวหน้างานวัดและประเมินผล', cap: 'ผู้ตรวจสอบ' },
   staff: { label: 'เจ้าหน้าที่งานทะเบียนและวัดผล', pos: 'เจ้าหน้าที่งานทะเบียนและวัดผล', cap: 'ผู้ตรวจสอบ' }
 };
-const CO_ROLES = ['staff', 'measure', 'registrar'];
+const CO_ROLES = ['staff', 'measure', 'registrar', 'director'];
 function signers() {
   const st = S.settings; st.signers = st.signers || {};
   for (const k of Object.keys(SIGN_ROLES)) st.signers[k] = Object.assign({ name: '', position: SIGN_ROLES[k].pos, sig: '' }, st.signers[k] || {});
-  st.signDefaults = Object.assign({ main: 'director', co: [], img: false }, st.signDefaults || {});
+  st.signDefaults = Object.assign({ main: 'director', co: ['staff', 'registrar'], img: false }, st.signDefaults || {});
+  if (!st.coDefV2) { st.signDefaults.main = 'director'; st.signDefaults.co = ['staff', 'registrar']; st.coDefV2 = true; }
   if (!st.sigOffV2) { st.signDefaults.img = false; st.sigOffV2 = true; }
   if (!st.sigOffMigrated) { st.signDefaults.img = false; st.sigOffMigrated = true; (S.requests || []).forEach(r => { if (r.sign && r.status !== 'replied') r.sign.img = false; }); }
   return st.signers;
@@ -1401,7 +1420,7 @@ function reqSign(r) {
   if (!Array.isArray(r.sign.co)) r.sign.co = [];
   return r.sign;
 }
-const coKeys = r => { const sg = reqSign(r); return CO_ROLES.filter(k => sg.co.includes(k) && !(sg.main === 'registrar' && k === 'registrar')); };
+const coKeys = r => { const sg = reqSign(r); return CO_ROLES.filter(k => sg.co.includes(k) && !(sg.main === 'registrar' && k === 'registrar') && !(k === 'director' && sg.main !== 'registrar' && listIndex(r) < 0)); };
 function sigImg(k, sg) { const s = signOf(k); return sg.img !== false && s.sig ? `<img class="sig-img" src="${s.sig}" alt="ลายเซ็น${esc(SIGN_ROLES[k].label)}">` : ''; }
 function mainSignHTML(r) {
   const sg = reqSign(r), k = sg.main === 'registrar' ? 'registrar' : 'director', s = signOf(k), dots = '..................................................';
@@ -1428,7 +1447,7 @@ function signEditor(r) {
     <label class="chk"><input type="radio" name="sg-main" value="director" data-ch="rsign" data-f="main" ${sg.main !== 'registrar' ? 'checked' : ''} ${dis}> ผู้อำนวยการ</label>
     <label class="chk"><input type="radio" name="sg-main" value="registrar" data-ch="rsign" data-f="main" ${sg.main === 'registrar' ? 'checked' : ''} ${dis}> นายทะเบียน (ปฏิบัติราชการแทน)</label></div>
   <div class="sign-row"><span class="sign-lab">ลงนามร่วม ${hasEncl ? '(ในบัญชีรายชื่อแนบท้าย)' : '(ท้ายหนังสือ)'}</span>
-    ${CO_ROLES.map(k => `<label class="chk"><input type="checkbox" value="${k}" data-ch="rsign" data-f="co" ${sg.co.includes(k) ? 'checked' : ''} ${lock || (k === 'registrar' && sg.main === 'registrar') ? 'disabled' : ''}> ${SIGN_ROLES[k].label}</label>`).join('')}</div>
+    ${CO_ROLES.map(k => `<label class="chk"><input type="checkbox" value="${k}" data-ch="rsign" data-f="co" ${sg.co.includes(k) ? 'checked' : ''} ${lock || (k === 'registrar' && sg.main === 'registrar') ? 'disabled' : ''}> ${SIGN_ROLES[k].label}${k === 'director' ? ' (ไม่บังคับ)' : k === 'registrar' ? ' (ผู้รับรอง)' : k !== 'director' ? ' (ผู้ตรวจสอบ)' : ''}</label>`).join('')}</div>
   <div class="sign-row"><span class="sign-lab">ลงวันที่ในหนังสือ</span>
     <label class="chk"><input type="radio" name="dt-mode" value="today" data-ch="rdate" ${dateMode(r) === 'today' ? 'checked' : ''} ${dis}> วันที่ออกหนังสือจริง (${fmtLong(r.outDate || todayISO())})</label>
     <label class="chk"><input type="radio" name="dt-mode" value="custom" data-ch="rdate" ${dateMode(r) === 'custom' ? 'checked' : ''} ${dis}> กำหนดเอง</label>
@@ -1481,7 +1500,7 @@ function signSettings() {
   <div class="sign-row"><span class="sign-lab">ลงนามหนังสือ</span>
     <label class="chk"><input type="radio" name="sd-main" value="director" data-ch="signdef" data-f="main" ${d.main !== 'registrar' ? 'checked' : ''}> ผู้อำนวยการ</label>
     <label class="chk"><input type="radio" name="sd-main" value="registrar" data-ch="signdef" data-f="main" ${d.main === 'registrar' ? 'checked' : ''}> นายทะเบียน (ปฏิบัติราชการแทน)</label></div>
-  <div class="sign-row"><span class="sign-lab">ลงนามร่วม</span>${CO_ROLES.map(k => `<label class="chk"><input type="checkbox" value="${k}" data-ch="signdef" data-f="co" ${d.co.includes(k) ? 'checked' : ''}> ${SIGN_ROLES[k].label}</label>`).join('')}</div>
+  <div class="sign-row"><span class="sign-lab">ลงนามร่วม</span>${CO_ROLES.map(k => `<label class="chk"><input type="checkbox" value="${k}" data-ch="signdef" data-f="co" ${d.co.includes(k) ? 'checked' : ''}> ${SIGN_ROLES[k].label}${k === 'director' ? ' (ไม่บังคับ)' : ''}</label>`).join('')}</div>
   <label class="chk"><input type="checkbox" data-ch="signdef" data-f="img" ${d.img !== false ? 'checked' : ''}> ใส่ภาพลายเซ็นในหนังสือโดยอัตโนมัติ</label>
   <div class="seal-set"><img src="${sealSrc()}" alt="ตราโรงเรียน" class="seal-prev"><div class="stack" style="gap:8px"><b>ตราประทับโรงเรียน</b><span class="muted small">ประทับบนชื่อนายทะเบียนในหน้าบัญชีรายชื่อผลการตรวจสอบ (ใช้ภาพ PNG พื้นโปร่งใส)</span>
     <label class="chk"><input type="checkbox" data-ch="sealoff" ${S.settings.sealOff ? '' : 'checked'}> ใช้ตราประทับในหนังสือ</label>
@@ -2114,7 +2133,7 @@ function gsResults() {
   const q = (U.gsq || '').trim(); if (!q) return '';
   const qd = digits(q), qn = normName(q).toLowerCase();
   const reqs = S.requests.filter(r => [r.regNo, r.agency, r.docNo, r.outNo].some(v => String(v || '').toLowerCase().replace(/\s/g, '').includes(q.toLowerCase().replace(/\s/g, ''))) || r.persons.some(p => (qn && normName(p.fname + p.lname).includes(qn)) || (qd.length >= 4 && (digits(p.cid).includes(qd) || digits(p.sid).includes(qd))))).slice(0, 6);
-  const stus = S.students.filter(s => (qn && normName(fullName(s)).includes(qn)) || (qd.length >= 3 && (sidKey(s.sid).includes(sidKey(qd)) || (s.cid || '').includes(qd)))).slice(0, 6);
+  const stus = S.students.filter(s => stuMatch(s, q)).slice(0, 8);
   if (!reqs.length && !stus.length) return `<div class="gs-empty">ไม่พบ "${esc(q)}" ในหนังสือหรือฐานข้อมูลผู้สำเร็จการศึกษา</div>`;
   return (reqs.length ? `<div class="gs-group">หนังสือ</div>${reqs.map(r => `<button type="button" class="gs-item" data-act="${registered(r) ? 'openverify' : 'go'}" data-v="receive" data-id="${r.id}">${ic('file')}<span><b>${esc(r.regNo || 'คำขอออนไลน์')}</b> ${esc(r.agency)}<span class="sub">ที่ ${esc(r.docNo)} · ${r.persons.length} ราย · ${STATUS[r.status].t}</span></span></button>`).join('')}` : '')
     + (stus.length ? `<div class="gs-group">ผู้สำเร็จการศึกษา</div>${stus.map(s => `<button type="button" class="gs-item" data-act="gsstu" data-q="${esc(s.sid)}">${ic('cap')}<span><b>${esc(fullName(s))}</b><span class="sub">รหัส ${esc(s.sid)} · ${esc(s.level)} · จบ ${fmtBE(s.gradDate)}</span></span></button>`).join('')}` : '');
