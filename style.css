@@ -641,3 +641,22 @@ select.res{min-width:184px}
   #modal .lw-side,#modal .lw-paper>*:not(.paperwrap){display:none!important}
   #modal .lw-paper,#modal .lw-paper .paperwrap{display:block!important;padding:0!important;margin:0!important}
 }
+
+/* ช่องทางการส่งหนังสือ (ตั้งค่า) */
+.ch-list{display:grid;gap:10px;margin-top:14px}
+.ch-row{display:grid;grid-template-columns:auto 70px minmax(160px,1.2fr) minmax(160px,1.2fr) minmax(160px,1.5fr) auto;gap:10px;align-items:end;padding:12px;border:1px solid var(--line,#dfe3ea);border-radius:10px}
+.ch-row .ch-on{align-self:center;margin:0}
+.ch-row .ch-del{align-self:center}
+@media (max-width:900px){.ch-row{grid-template-columns:1fr 1fr}.ch-row .ch-nm,.ch-row .ch-url,.ch-row .ch-note{grid-column:1/-1}}
+
+/* หนังสือนำยาวเกิน 1 หน้า: กระชับระยะทีละขั้น (ระบบเลือกให้อัตโนมัติ) */
+.letter.fit2 .lt-head{margin-top:-.4cm}
+.letter.fit2 .lt-f,.letter.fit2 .lt-p,.letter.fit2 .lt-date{margin-top:1pt!important}
+.letter.fit2 p,.letter.fit2 .lt-li{line-height:1.22}
+.letter.fit2 .lt-sign{margin-top:2pt}
+.letter.fit2 .lt-sign .sp{height:1.15cm}
+.letter.fit2 .lt-foot{margin-top:.8cm}
+.letter.fit3 p,.letter.fit3 .lt-li{line-height:1.12}
+.letter.fit3{font-size:15.5pt}
+.letter.fit3 .lt-sign .sp{height:1cm}
+.letter.fit3 .lt-foot{margin-top:.55cm}

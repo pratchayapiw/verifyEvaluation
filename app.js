@@ -1,6 +1,6 @@
 /* WNM-Educational Measurement and Evaluation Section Ver.1 — ระบบรับ–ส่งและตรวจสอบวุฒิการศึกษา (Prototype, เก็บข้อมูลในเบราว์เซอร์) */
 /* รุ่นของระบบ — release.py ปรับให้อัตโนมัติทุกครั้งที่ปรับปรุง ห้ามแก้ด้วยมือ */
-const APP_VERSION = { no: 'Ver.6', at: '8/10/2569 17:00' };
+const APP_VERSION = { no: 'Ver.9', at: '8/10/2569 17:39' };
 'use strict';
 
 /* ---------- ค่าคงที่ ---------- */
@@ -285,7 +285,7 @@ async function publishReply(r) {
     const blob = await outPDF(r);
     const { error } = await sb.storage.from('replies').upload(`${r.id}.pdf`, blob, { contentType: 'application/pdf', upsert: true });
     if (error) throw error;
-    r.replyPdf = true; save();
+    r.replyPdf = true; r.replyName = pdfName(r); save();
   } catch (e) { toast('อัปโหลดหนังสือตอบ PDF ให้หน่วยงานไม่สำเร็จ: ' + cloudMsg(e) + ' (กดบันทึกส่งใหม่ได้ที่หน้าหนังสือ)', 'err'); }
 }
 async function cloudPoll() {
@@ -871,7 +871,7 @@ function reqTable(list, ctx) {
 function deliveryLine(r) {
   const d = r.delivery; if (!d) return '';
   const trk = d.track ? ` เลขพัสดุ <a href="https://track.thailandpost.co.th/?trackNumber=${encodeURIComponent(d.track)}" target="_blank" rel="noopener"><b>${esc(d.track)}</b></a>` : '';
-  const how = d.method === 'email' ? `E-mail ถึง ${esc(d.to)}` : d.method === 'post' ? `ไปรษณีย์ (${esc(d.type)})${trk}` : 'ส่งถึงหน่วยงานแล้ว';
+  const how = d.method === 'email' ? `E-mail ถึง ${esc(d.to)}` : d.method === 'post' ? `ไปรษณีย์ (${esc(d.type)})${trk}` : d.method === 'channel' ? `${esc(d.ch)}${d.ref ? ' (' + esc(d.ref) + ')' : ''}` : 'ส่งถึงหน่วยงานแล้ว';
   return `<p class="notice ok small" style="margin:8px 0 0">📬 ส่งหนังสือตอบเมื่อ ${fmtLong(r.sentDate)} ทาง${how}</p>`;
 }
 function stepper(r) {
@@ -1375,12 +1375,24 @@ function accountSettings() {
       <div class="row"><button type="button" class="btn btn-outline" data-act="resetdemo">โหลดข้อมูลตัวอย่างใหม่</button><button type="button" class="btn btn-outline" data-act="clearall">ล้างข้อมูลทั้งหมด</button><button type="button" class="btn btn-outline" data-act="backup">ดาวน์โหลดสำรองข้อมูล (JSON)</button></div></div>`;
   return { pw, staffCard, agCard, dataCard };
 }
+function channelSettings() {
+  const cs = channels();
+  return `<div class="card"><div class="between wrap"><div><h2 style="margin:0">ช่องทางการส่งหนังสือตอบอื่นๆ</h2><p class="muted small" style="margin:4px 0 0">นอกจาก E-mail และไปรษณีย์ · ปุ่มของแต่ละช่องทางจะขึ้นในหน้าหนังสือตอบ หัวข้อ "ส่งหนังสือ" · ลิงก์ที่ใส่ไว้ที่นี่เป็นค่าเริ่มต้น แก้รายฉบับได้</p></div>
+    <div class="row"><button type="button" class="btn btn-primary sm" data-act="chadd">+ เพิ่มช่องทาง</button><button type="button" class="btn btn-outline sm" data-act="chreset">คืนค่าเริ่มต้น</button></div></div>
+  ${cs.length ? `<div class="ch-list">${cs.map(c => `<div class="ch-row">
+    <label class="chk ch-on"><input type="checkbox" data-ch="chset" data-c="${esc(c.id)}" data-f="on" ${c.on !== false ? 'checked' : ''}> ใช้งาน</label>
+    <div class="ch-ic"><label for="ch-ic-${esc(c.id)}">ไอคอน</label><input id="ch-ic-${esc(c.id)}" data-ch="chset" data-c="${esc(c.id)}" data-f="icon" value="${esc(c.icon || '')}" maxlength="4"></div>
+    <div class="ch-nm"><label for="ch-nm-${esc(c.id)}">ชื่อช่องทาง</label><input id="ch-nm-${esc(c.id)}" data-ch="chset" data-c="${esc(c.id)}" data-f="name" value="${esc(c.name || '')}" placeholder="เช่น Google Form / LINE / ระบบ e-Saraban"></div>
+    <div class="ch-url"><label for="ch-url-${esc(c.id)}">ลิงก์เริ่มต้น (ถ้ามี)</label><input id="ch-url-${esc(c.id)}" data-ch="chset" data-c="${esc(c.id)}" data-f="url" value="${esc(c.url || '')}" placeholder="https://..."></div>
+    <div class="ch-note"><label for="ch-note-${esc(c.id)}">คำแนะนำสำหรับเจ้าหน้าที่</label><input id="ch-note-${esc(c.id)}" data-ch="chset" data-c="${esc(c.id)}" data-f="note" value="${esc(c.note || '')}"></div>
+    <button type="button" class="icon-btn ch-del" data-act="chdel" data-c="${esc(c.id)}" aria-label="ลบช่องทาง ${esc(c.name)}">✕</button></div>`).join('')}</div>` : '<p class="muted">ยังไม่มีช่องทางเพิ่มเติม กด "+ เพิ่มช่องทาง"</p>'}</div>`;
+}
 function vSettings() {
   const st = S.settings, acc = accountSettings(), pendAg = (S.agencies || []).filter(a => !a.approved).length;
   const f = (id, label, v, ph = '') => `<div><label for="st-${id}">${label}</label><input id="st-${id}" value="${esc(v)}" placeholder="${esc(ph)}"></div>`;
   const formTab = ['school', 'letter', 'mail'].includes(U.stab || 'school');
   return `<div class="pagehead"><h1>ตั้งค่า</h1><p class="muted">ข้อมูลโรงเรียน รูปแบบหนังสือ ผู้ลงนาม บัญชีผู้ใช้ และข้อมูลระบบ</p></div>
-  ${tabsBar('stab', [['school', '🏢 ข้อมูลโรงเรียน'], ['letter', '📤 หนังสือส่งออก'], ['mail', '📧 บริการส่งอีเมล'], ['sign', '✍️ ผู้ลงนามและลายเซ็น'], ['users', '🔐 บัญชีผู้ใช้', pendAg ? { n: pendAg, cls: 'hot' } : null], ['data', '💾 ข้อมูลระบบ']])}
+  ${tabsBar('stab', [['school', '🏢 ข้อมูลโรงเรียน'], ['letter', '📤 หนังสือส่งออก'], ['mail', '📨 ช่องทางการส่ง'], ['sign', '✍️ ผู้ลงนามและลายเซ็น'], ['users', '🔐 บัญชีผู้ใช้', pendAg ? { n: pendAg, cls: 'hot' } : null], ['data', '💾 ข้อมูลระบบ']])}
   <form class="card form" data-form="settings" novalidate data-tp="stab:formgroup" ${formTab ? '' : 'hidden'}>
   <div class="grid g2" ${tp('stab', 'school', 'school')}>
   <h2 class="span2" style="margin:0">ข้อมูลโรงเรียน (หัวหนังสือและท้ายหนังสือ)</h2>
@@ -1405,6 +1417,7 @@ function vSettings() {
   <div><label for="st-gasKey">รหัสลับของบริการ (KEY)</label><input id="st-gasKey" value="${esc(st.gasKey || '')}" autocomplete="off"></div>
   </div>
   <div class="row end"><button class="btn btn-primary" type="submit">บันทึกการตั้งค่า</button></div></form>
+  <div ${tp('stab', 'mail', 'school')}>${channelSettings()}</div>
   <div ${tp('stab', 'sign', 'school')}>${signSettings()}</div>
   <div class="stack" ${tp('stab', 'users', 'school')}>${acc.pw}${acc.staffCard}${acc.agCard}</div>
   <div ${tp('stab', 'data', 'school')}>${acc.dataCard}</div>`;
@@ -1523,6 +1536,19 @@ function enclHTML(r) {
   <p class="en-cert">ตรวจสอบและรับรองความถูกต้อง</p>
   ${coSignHTML(r, 'in-encl') || `<div class="en-sign"><p>ลงชื่อ ........................................................ ผู้ตรวจสอบ</p><p>(........................................................)</p><p>ตำแหน่ง ........................................................</p></div>`}`);
 }
+/* หนังสือนำต้องจบในหน้าเดียว: ถ้าเนื้อหายาวเกิน A4 (เช่น มีสิ่งที่ส่งมาด้วยหลายบรรทัด) ลดระยะห่างทีละขั้น fit1 → fit2 → fit3 */
+const A4_PX = 29.7 * 96 / 2.54;
+function fitLetters(root) {
+  (root || document).querySelectorAll('article.letter:not(.encl):not(.copy):not(.envelope)').forEach(el => {
+    if (!el.offsetHeight) return;
+    const base = el.classList.contains('fit1') && el.dataset.fitBase !== '0';
+    if (el.dataset.fitBase === undefined) el.dataset.fitBase = el.classList.contains('fit1') ? '1' : '0';
+    el.classList.remove('fit2', 'fit3'); if (!base) el.classList.remove('fit1');
+    const lim = (el.closest('.pdf-stage') ? 29.6 * 96 / 2.54 : A4_PX) + 1;
+    for (const c of ['fit1', 'fit2', 'fit3']) { if (el.scrollHeight <= lim) break; el.classList.add(c); }
+  });
+}
+function setDoc(r) { const d = $('#letterDoc'); if (!d) return; d.innerHTML = docHTML(r); fitLetters(d); }
 /* ตารางผลอยู่ในหนังสือนำ (แบบที่ 2 ไม่เกิน 5 ราย) = จัดระยะให้กระชับ จบในหน้าเดียว */
 const docHTML = r => `<article class="letter${listAnyIndex(r) < 0 ? ' fit1' : ''}" id="letter">${letterHTML(r)}</article>${listIndex(r) >= 0 ? `<article class="letter encl">${enclHTML(r)}</article>` : ''}${pp1CopyPages(r)}`;
 function enclEditor(r) {
@@ -1702,10 +1728,11 @@ function renderModal() {
   const sumDetail = `ที่ ${esc(S.settings.docPrefix)}${esc(r.outNo || '(ยังไม่ออกเลข)')} · ${esc(letterDateText(r).trim())} · ลงนาม: ${mainMode(sg) === 'director' ? 'ผู้อำนวยการ' : esc(MAIN_MODES[mainMode(sg)].line)}`;
   const sumEncl = encs.length ? encs.map(e => esc(e.name.trim()) + (listKind(e) === 'agency' ? ' (หน่วยงานแนบมา)' : listKind(e) === 'system' ? ' (จากระบบ)' : '')).join(' · ') : 'ไม่มี (ผลแสดงเป็นตารางในหนังสือ)';
   const sumSigned = hasSigned(r) ? `แนบแล้ว ${r.signed.pages} หน้า${useSigned(r) ? ' · ใช้ไฟล์นี้ส่ง' : ''}` : 'ยังไม่แนบ (ไม่บังคับ)';
-  const sumSend = lock ? `ส่งแล้วเมื่อ ${fmtLong(r.sentDate)}${r.delivery ? ' · ' + (r.delivery.method === 'email' ? 'E-mail' : r.delivery.method === 'post' ? 'ไปรษณีย์' : 'วิธีอื่น') : ''}` : 'ยังไม่ส่ง';
+  const sumSend = lock ? `ส่งแล้วเมื่อ ${fmtLong(r.sentDate)}${r.delivery ? ' · ' + (r.delivery.method === 'email' ? 'E-mail' : r.delivery.method === 'post' ? 'ไปรษณีย์' : r.delivery.method === 'channel' ? esc(r.delivery.ch) : 'วิธีอื่น') : ''}` : 'ยังไม่ส่ง';
   const sendBody = `<div class="row">
     <button type="button" class="btn ${U.panel === 'email' ? 'btn-primary' : 'btn-outline'} sm" data-act="panel" data-p="email">📧 ส่งทาง E-mail</button>
     <button type="button" class="btn ${U.panel === 'post' ? 'btn-primary' : 'btn-outline'} sm" data-act="panel" data-p="post">📮 ส่งทางไปรษณีย์ / ซอง</button>
+    ${channels().filter(c => c.on !== false && c.name).map(c => `<button type="button" class="btn ${U.panel === 'ch:' + c.id ? 'btn-primary' : 'btn-outline'} sm" data-act="panel" data-p="ch:${esc(c.id)}">${esc(c.icon || '📨')} ${esc(c.name)}</button>`).join('')}
     ${lock ? '' : `<button type="button" class="btn btn-outline sm" data-act="sent" data-id="${r.id}">บันทึกว่าส่งแล้ว (วิธีอื่น)</button>`}
     <button type="button" class="btn btn-outline sm" data-act="copyletter">คัดลอกข้อความหนังสือ</button></div>
     ${lock ? deliveryLine(r) : ''}${sendPanel(r)}`;
@@ -1723,6 +1750,7 @@ function renderModal() {
       <div class="paperwrap">${U.modalView === 'env' ? `<article class="letter envelope" id="envelope">${envelopeHTML(r)}</article>` : `<div id="letterDoc">${docHTML(r)}</div>`}</div>
     </div>
   </div>`;
+  fitLetters(m);
   if (CLOUD && wantsPP1(r) && pp1Ready(r).some(t => pp1Pages(t.s).some(pg => !pageSrc(pg))) && U.pp1Loading !== r.id) {
     U.pp1Loading = r.id;
     ensurePP1(r).then(() => { if (U.letterId === r.id) renderModal(); }).catch(e => toast('โหลดสำเนา ปพ.1 ไม่สำเร็จ: ' + cloudMsg(e), 'err')).finally(() => { U.pp1Loading = null; });
@@ -1990,7 +2018,18 @@ async function runScan(filesArg, opts = {}) {
 }
 
 /* ---------- PDF / อีเมล / ไปรษณีย์ ---------- */
-const pdfName = r => `หนังสือแจ้งผลตรวจสอบวุฒิ_${(r.outNo || r.regNo).replace(/\//g, '-')}.pdf`;
+/* ชื่อไฟล์ PDF หนังสือแจ้งผล: ชนิดลายเซ็น-เลขที่หนังสือ · วันที่ หน่วยงาน เลขรับ
+   kind: 'real' = ไฟล์หนังสือตัวจริงที่ลงนามแล้ว · 'sys' = ภาพลายเซ็นจากระบบ · 'none' = ไม่มีลายเซ็น · ไม่ระบุ = ตามไฟล์ที่ระบบจะส่งออก */
+const SIG_LABEL = { real: 'ลายเซ็นจริง', sys: 'ลายเซ็นจากระบบ', none: 'ไม่มีลายเซ็น' };
+const sysSigned = r => { try { return /class="sig-img"/.test(letterHTML(r)); } catch (e) { return false; } };
+const pdfKind = r => useSigned(r) ? 'real' : (sysSigned(r) ? 'sys' : 'none');
+function pdfName(r, kind) {
+  const k = kind || pdfKind(r), st = S.settings;
+  const no = r.outNo ? `${st.docPrefix || ''}${r.outNo}` : `${st.docPrefix || ''}(ร่าง)`;
+  const reg = String(r.regNo || '').split('/')[0].trim();
+  const name = `หนังสือแจ้งผลการตรวจสอบวุฒิ-${SIG_LABEL[k]}-${no} · ${String(letterDateText(r)).trim()} ${String(r.agency || '').trim()}${reg ? ' เลขรับ ' + reg : ''}`;
+  return name.replace(/[\/]/g, '-').replace(/[:*?"<>|\n\r\t]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 180) + '.pdf';
+}
 async function saveFile(blob, filename) {
   const dl = await useCap('downloads');
   if (dl) { await dl.save({ filename, data: blob }); return; }
@@ -2014,6 +2053,7 @@ async function makePDF(html, pageClass) {
   stage.style.cssText = 'position:fixed;left:-30000px;top:0;';
   thaiBreaks(stage);
   document.body.appendChild(stage);
+  if (!env) fitLetters(stage);
   try {
     const pdf = new window.jspdf.jsPDF({ unit: 'mm', format: env ? [220, 110] : 'a4', orientation: env ? 'landscape' : 'portrait', compress: true });
     let first = true;
@@ -2066,6 +2106,7 @@ function markSent(r, method, info) {
   r.delivery = Object.assign({ method, at: Date.now() }, info);
   if (method === 'email') addTL(r, `ส่งหนังสือแจ้งผลทาง E-mail ถึง ${info.to}`, true);
   else if (method === 'post') addTL(r, `ส่งหนังสือแจ้งผลทางไปรษณีย์ (${info.type})${info.track ? ' เลขพัสดุ ' + info.track : ''}`, true);
+  else if (method === 'channel') addTL(r, `ส่งหนังสือแจ้งผลทาง ${info.ch}${info.ref ? ' (' + info.ref + ')' : ''}`, true);
   else addTL(r, 'ส่งหนังสือแจ้งผลการตรวจสอบถึงหน่วยงานแล้ว', true);
   snapshotPublic(r);
   save();
@@ -2073,6 +2114,21 @@ function markSent(r, method, info) {
   return true;
 }
 const POST_TYPES = ['ลงทะเบียน', 'EMS', 'ธรรมดา', 'ส่งด้วยตนเอง'];
+/* ช่องทางการส่งหนังสือตอบเพิ่มเติม (นอกจาก E-mail / ไปรษณีย์) เจ้าหน้าที่เพิ่ม/แก้ไขได้ในหน้าตั้งค่า */
+const CHANNELS_DEFAULT = [
+  { id: 'form', icon: '📝', name: 'กรอกแบบฟอร์มออนไลน์ของหน่วยงาน', url: '', note: 'เปิดลิงก์แบบฟอร์มที่หน่วยงานกำหนด (เช่น Google Form) กรอกผลและแนบไฟล์ PDF หนังสือแจ้งผล', on: true },
+  { id: 'line', icon: '💬', name: 'LINE', url: '', note: 'ส่งไฟล์ PDF และข้อความแจ้งผลทาง LINE OA / LINE กลุ่มของหน่วยงาน', on: true },
+  { id: 'hand', icon: '🤝', name: 'หน่วยงานมารับด้วยตนเอง', url: '', note: 'บันทึกชื่อผู้มารับหนังสือเป็นหลักฐาน', on: true }
+];
+function channels() {
+  const st = S.settings;
+  if (!Array.isArray(st.channels)) st.channels = CHANNELS_DEFAULT.map(c => Object.assign({}, c));
+  return st.channels;
+}
+const chOf = id => channels().find(c => c.id === id);
+const safeUrl = u => { u = String(u || '').trim(); if (!u) return ''; if (/^www\./i.test(u)) u = 'https://' + u; return /^(https?:\/\/|line:\/\/)/i.test(u) ? u : ''; };
+const chUrl = (r, c) => (r.chUrl && r.chUrl[c.id]) || c.url || '';
+function chText(r) { const m = defaultMail(r); return `${m.subject}\n\n${m.body}`; }
 function sendPanel(r) {
   const st = S.settings, lock = r.status === 'replied';
   if (U.panel === 'email') {
@@ -2101,6 +2157,19 @@ function sendPanel(r) {
     <div style="align-self:end">${lock ? '<span class="muted small">ส่งแล้ว</span>' : '<button type="button" class="btn btn-green" data-act="postmark">บันทึกส่งทางไปรษณีย์</button>'}</div></div>
     <p class="small" style="margin:0">${hasSigned(r) ? `✅ แนบหนังสือตัวจริงไว้แล้ว ${r.signed.pages} หน้า (เก็บเป็นหลักฐานการส่ง${CLOUD ? ' และให้หน่วยงานดาวน์โหลด' : ''})` : '⚠️ ยังไม่ได้แนบหนังสือตัวจริงที่สแกน แนะนำให้แนบไว้เป็นหลักฐานก่อนบันทึกส่ง'}</p>
     <p class="muted small" style="margin:0">ซองขนาด DL 22 × 11 ซม. มีตราครุฑ ชื่อและที่อยู่โรงเรียนมุมซ้ายบน ผู้รับอยู่กลางค่อนขวา · ใส่เลขพัสดุแล้วหน่วยงานกดติดตามได้จากหน้าตรวจสอบสถานะ</p></div>`;
+  }
+  if (String(U.panel || '').startsWith('ch:')) {
+    const c = chOf(U.panel.slice(3)); if (!c) return '';
+    const url = chUrl(r, c), href = safeUrl(url), ref = U.chRef || '';
+    return `<div class="card send-panel"><div class="between wrap"><h3>${esc(c.icon || '📨')} ส่งทาง ${esc(c.name)}</h3><button type="button" class="icon-btn" data-act="panel" data-p="" aria-label="ปิด">✕</button></div>
+    ${c.note ? `<p class="muted small" style="margin:0">${esc(c.note)}</p>` : ''}
+    <div><label for="ch-url">ลิงก์ของหน่วยงาน (แบบฟอร์ม / LINE / เว็บไซต์) ${c.url ? '· ค่าเริ่มต้นจากหน้าตั้งค่า' : '· ถ้ามี'}</label><input id="ch-url" data-ch="churl" data-c="${esc(c.id)}" value="${esc(url)}" placeholder="https://forms.gle/... หรือ https://line.me/R/ti/p/@..." ${lock ? 'disabled' : ''}>${url && !href ? '<div class="hintline" style="color:var(--danger-fg)">ลิงก์ต้องขึ้นต้นด้วย https://</div>' : ''}</div>
+    <div class="row">${href ? `<a class="btn btn-primary" href="${esc(href)}" target="_blank" rel="noopener">🔗 เปิดลิงก์</a>` : ''}
+    <button type="button" class="btn btn-outline" data-act="pdf">💾 ดาวน์โหลด PDF</button>
+    <button type="button" class="btn btn-outline" data-act="chcopy">📋 คัดลอกข้อความแจ้งผล</button></div>
+    <p class="small" style="margin:0">ไฟล์ที่ส่ง: <b>${sendFileNote(r)}</b> · ชื่อไฟล์ ${esc(pdfName(r))}</p>
+    ${lock ? '' : `<div class="grid g2"><div><label for="ch-ref">หลักฐานการส่ง (ถ้ามี)</label><input id="ch-ref" data-in="chref" value="${esc(ref)}" placeholder="เช่น เลขที่รับแบบฟอร์ม / ชื่อผู้มารับ / ชื่อผู้รับใน LINE"></div>
+    <div style="align-self:end"><button type="button" class="btn btn-green" data-act="chmark" data-c="${esc(c.id)}">บันทึกว่าส่งแล้วทาง ${esc(c.name)}</button></div></div>`}</div>`;
   }
   return '';
 }
@@ -2483,7 +2552,7 @@ async function signedBlob(r) {
 }
 /* ไฟล์ที่ใช้ส่งจริง: ฉบับลงนาม (ถ้าแนบและเลือกใช้) หรือฉบับที่ระบบสร้าง */
 async function outPDF(r) { return useSigned(r) ? signedBlob(r) : replyPDF(r); }
-const signedName = r => pdfName(r).replace(/\.pdf$/, '_ฉบับลงนาม.pdf');
+const signedName = r => pdfName(r, 'real');
 function signedCard(r) {
   const s = r.signed, on = useSigned(r);
   return `<div class="card encl-editor signed-card"><div class="between wrap"><h3>✍️ หนังสือตัวจริง (ฉบับลงนามแล้ว)</h3>${hasSigned(r) ? `<span class="badge ok">แนบแล้ว ${s.pages} หน้า</span>` : '<span class="badge neutral">ยังไม่ได้แนบ</span>'}</div>
@@ -2731,7 +2800,7 @@ const ACT = {
     const r = getReq(b.dataset.id), old = b.textContent; b.disabled = true; b.textContent = 'กำลังสร้าง PDF...';
     try {
       if (CLOUD && !r.replyPdf) throw new Error('โรงเรียนยังไม่ได้อัปโหลดไฟล์หนังสือตอบ');
-      await saveFile(CLOUD ? await cloudDownload('replies', `${r.id}.pdf`) : await outPDF(r), pdfName(r)); toast('บันทึกหนังสือตอบกลับแล้ว');
+      await saveFile(CLOUD ? await cloudDownload('replies', `${r.id}.pdf`) : await outPDF(r), (CLOUD && r.replyName) || pdfName(r)); toast('บันทึกหนังสือตอบกลับแล้ว');
     }
     catch (e) { toast(e && e.code === 'declined' ? 'ยกเลิกการบันทึกไฟล์' : 'สร้าง PDF ไม่สำเร็จ: ' + ((e && (e.message || e.code)) || e), e && e.code === 'declined' ? '' : 'err'); }
     finally { if (b.isConnected) { b.disabled = false; b.textContent = old; } }
@@ -2842,7 +2911,7 @@ const ACT = {
   },
   pdf: async b => {
     const r = getReq(U.letterId), old = b.textContent; b.disabled = true; b.textContent = 'กำลังสร้าง PDF...';
-    try { await saveFile(await replyPDF(r), pdfName(r)); toast('บันทึกไฟล์ PDF แล้ว'); }
+    try { await saveFile(await replyPDF(r), pdfName(r, sysSigned(r) ? 'sys' : 'none')); toast('บันทึกไฟล์ PDF แล้ว'); }
     catch (e) { toast(e && e.code === 'declined' ? 'ยกเลิกการบันทึกไฟล์' : 'สร้าง PDF ไม่สำเร็จ: ' + ((e && (e.message || e.code)) || e), e && e.code === 'declined' ? '' : 'err'); }
     finally { if (b.isConnected) { b.disabled = false; b.textContent = old; } }
   },
@@ -2972,6 +3041,11 @@ const ACT = {
     } catch (e) { U.feeMsg = `<p class="notice danger" style="margin:0">อ่านไฟล์ไม่สำเร็จ: ${esc(e.message || e)}</p>`; }
     render();
   },
+  chcopy: () => { const r = getReq(U.letterId); copyText(chText(r), 'คัดลอกข้อความแจ้งผลแล้ว วางใน LINE / แบบฟอร์มได้'); },
+  chmark: b => { const r = getReq(U.letterId), c = chOf(b.dataset.c); if (!c) return; if (!markSent(r, 'channel', { ch: c.name, chId: c.id, url: chUrl(r, c), ref: (U.chRef || '').trim() })) return; U.chRef = ''; renderModal(); render(); toast('บันทึกการส่งทาง ' + c.name + ' แล้ว'); },
+  chadd: () => { channels().push({ id: uid('c'), icon: '📨', name: 'ช่องทางใหม่', url: '', note: '', on: true }); save(); render(); },
+  chdel: b => { if (!armed(b, 'ยืนยันลบ?')) return; const st = S.settings; st.channels = channels().filter(c => c.id !== b.dataset.c); save(); render(); toast('ลบช่องทางแล้ว'); },
+  chreset: b => { if (!armed(b, 'ยืนยันคืนค่าเริ่มต้น?')) return; S.settings.channels = CHANNELS_DEFAULT.map(c => Object.assign({}, c)); save(); render(); },
   enclauto: () => { const r = getReq(U.letterId); if (!r) return; r.enclAuto = true; save(); renderModal(); },
   payfull: b => { const f = S.fees.find(x => x.id === b.dataset.id); f.paid = f.amount; save(); render(); toast('บันทึกรับชำระครบแล้ว'); },
   delfee: b => { if (!armed(b, 'ยืนยัน?')) return; S.fees = S.fees.filter(f => f.id !== b.dataset.id); save(); render(); },
@@ -3031,6 +3105,7 @@ function syncRow(i, p) {
   const hit = $(`#dp-${i}-hit`); if (hit) hit.hidden = !p.dbId;
 }
 const IN = {
+  chref: el => { U.chRef = el.value; },
   mail: el => { U.mail[el.dataset.f] = el.value; },
   df: el => { U[el.dataset.d || 'draft'][el.dataset.f] = el.value; if (!el.dataset.d && /^(to|agency)$/.test(el.dataset.f)) { const h = $('#rc-to-hint'); if (h) h.innerHTML = toHint(U.draft); } if (!el.dataset.d && (el.dataset.f === 'docno' || el.dataset.f === 'agency')) { const w = $('#rc-dup'); if (w) w.innerHTML = dupWarn(U.draft); } },
   gsq: el => { U.gsq = el.value; const r = $('#gs-res'); if (r) r.innerHTML = gsResults() || gsHint(); },
@@ -3046,6 +3121,8 @@ const IN = {
   feq: el => { U.fq = el.value; $('#fe-table').innerHTML = feesTable(); }
 };
 const CH = {
+  churl: el => { const r = getReq(U.letterId); r.chUrl = Object.assign({}, r.chUrl, { [el.dataset.c]: el.value.trim() }); save(); renderModal(); },
+  chset: el => { const c = chOf(el.dataset.c); if (!c) return; const f = el.dataset.f; c[f] = f === 'on' ? el.checked : el.value.trim(); save(); if (f === 'on' || f === 'url') render(); },
   dbpick: el => { const fs = [...el.files], h = $('#db-picked'); if (h) h.innerHTML = fs.length ? `เลือก ${fs.length} ไฟล์: ${fs.map(f => esc(f.name) + (levelFromName(f.name) ? ` <span class="badge info">${levelFromName(f.name)}</span>` : '')).join(' · ')}` : ''; },
   restore: async el => {
     const f = el.files[0]; if (!f) return;
@@ -3064,7 +3141,7 @@ const CH = {
   pp1: el => { const s = getStu(el.dataset.s); s[el.dataset.f] = digits(el.value); save(); render(); },
   rpp1: el => { const r = getReq(U.letterId); r.attachPP1 = el.checked; save(); renderModal(); },
   rpp1cert: el => { const r = getReq(U.letterId); r.pp1Cert = el.value; save(); renderModal(); },
-  rpp1mark: el => { const r = getReq(U.letterId); r.pp1Mark = el.checked; save(); if ($('#letterDoc')) $('#letterDoc').innerHTML = docHTML(r); },
+  rpp1mark: el => { const r = getReq(U.letterId); r.pp1Mark = el.checked; save(); if ($('#letterDoc')) setDoc(r); },
   pp1up: async el => {
     const s = getStu(el.dataset.s), files = [...el.files]; if (!s || !files.length) return;
     toast('กำลังเตรียมสำเนา ปพ.1...');
@@ -3087,7 +3164,7 @@ const CH = {
     renderModal();
   },
   usesigned: el => { const r = getReq(U.letterId); r.useSigned = el.value === '1'; save(); if (CLOUD && r.status === 'replied') publishReply(r); renderModal(); },
-  rseal: el => { const r = getReq(U.letterId); r.seal = el.checked; save(); if ($('#letterDoc')) $('#letterDoc').innerHTML = docHTML(r); },
+  rseal: el => { const r = getReq(U.letterId); r.seal = el.checked; save(); if ($('#letterDoc')) setDoc(r); },
   sealoff: el => { S.settings.sealOff = !el.checked; save(); render(); },
   sealup: async el => {
     const f = el.files[0]; if (!f) return;
@@ -3098,9 +3175,9 @@ const CH = {
     } catch (e) { toast('เปลี่ยนภาพไม่สำเร็จ: ' + e.message, 'err'); }
   },
   rdate: el => { const r = getReq(U.letterId); r.dateMode = el.value; if (el.value === 'custom' && !r.dateCustom) r.dateCustom = r.outDate || todayISO(); save(); renderModal(); },
-  rdatef: el => { const r = getReq(U.letterId), f = el.dataset.f; r[f] = f === 'dateCustom' ? el.value : (parseInt(el.value, 10) || undefined); save(); if ($('#letterDoc')) $('#letterDoc').innerHTML = docHTML(r); },
+  rdatef: el => { const r = getReq(U.letterId), f = el.dataset.f; r[f] = f === 'dateCustom' ? el.value : (parseInt(el.value, 10) || undefined); save(); if ($('#letterDoc')) setDoc(r); },
   routyear: el => { const r = getReq(U.letterId); r.outYearOn = el.value === '1'; if (r.outNo) { const old = r.outNo; setOutNo(r); if (old !== r.outNo) addTL(r, `ปรับรูปแบบเลขหนังสือส่งเป็น ที่ ${r.outNo}`); } save(); renderModal(); },
-  rgpa: el => { const r = getReq(U.letterId); r.showGpa = el.checked; save(); if ($('#letterDoc')) $('#letterDoc').innerHTML = docHTML(r); },
+  rgpa: el => { const r = getReq(U.letterId); r.showGpa = el.checked; save(); if ($('#letterDoc')) setDoc(r); },
   signer: el => { signers()[el.dataset.k][el.dataset.f] = el.value.trim(); save(); },
   signdef: el => {
     signers(); const d = S.settings.signDefaults, f = el.dataset.f;
@@ -3108,7 +3185,7 @@ const CH = {
     else d.co = el.checked ? [...new Set([...d.co, el.value])] : d.co.filter(k => k !== el.value);
     save();
   },
-  rsignf: el => { const r = getReq(U.letterId), sg = reqSign(r); sg[el.dataset.f] = el.value.trim(); save(); if ($('#letterDoc')) $('#letterDoc').innerHTML = docHTML(r); },
+  rsignf: el => { const r = getReq(U.letterId), sg = reqSign(r); sg[el.dataset.f] = el.value.trim(); save(); if ($('#letterDoc')) setDoc(r); },
   rsign: el => {
     const r = getReq(U.letterId), sg = reqSign(r), f = el.dataset.f;
     if (f === 'main') sg.main = el.value;
@@ -3165,7 +3242,7 @@ const CH = {
   enc: el => {
     const r = getReq(U.letterId), e = enclList(r)[+el.dataset.i];
     e[el.dataset.f] = el.dataset.f === 'qty' ? Math.max(1, parseInt(el.value, 10) || 1) : el.value;
-    save(); if ($('#letterDoc')) $('#letterDoc').innerHTML = docHTML(r);
+    save(); if ($('#letterDoc')) setDoc(r);
   },
   vfreq: el => { U.reqId = el.value || null; render(); },
   res: el => {
