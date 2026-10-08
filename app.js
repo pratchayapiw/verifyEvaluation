@@ -1,6 +1,6 @@
 /* WNM-Educational Measurement and Evaluation Section Ver.1 — ระบบรับ–ส่งและตรวจสอบวุฒิการศึกษา (Prototype, เก็บข้อมูลในเบราว์เซอร์) */
 /* รุ่นของระบบ — release.py ปรับให้อัตโนมัติทุกครั้งที่ปรับปรุง ห้ามแก้ด้วยมือ */
-const APP_VERSION = { no: 'Ver.9', at: '8/10/2569 17:39' };
+const APP_VERSION = { no: 'Ver.10', at: '8/10/2569 17:53' };
 'use strict';
 
 /* ---------- ค่าคงที่ ---------- */
@@ -414,6 +414,7 @@ function migrateState() {
   const st = S.settings, d = defaultSettings();
   if (!st.address || st.address === 'จังหวัดนนทบุรี') st.address = d.address;
   if (!st.enclAutoV1) { st.enclAutoV1 = true; (S.requests || []).forEach(r => { if (r.form != 1 && r.status !== 'replied' && r.enclAuto === undefined && (!Array.isArray(r.enclosures) || !r.enclosures.some(e => listKind(e)))) r.enclAuto = true; }); }
+  if (!st.debtNoteV2) { st.debtNoteV2 = true; if ((st.debtNote || '').trim() === 'โปรดแจ้งเจ้าของประวัติติดต่องานวัดและประเมินผลโดยเร็ว') st.debtNote = ''; }
   if (!st.addrV2) { st.addrV2 = true; if (/^\s*59 หมู่ 2 ตำบลคลองพระอุดม\s*\n?\s*อำเภอลาดหลุมแก้ว จังหวัดปทุมธานี 12140\s*$/.test(st.address)) st.address = d.address; }
   if (!st.phone) st.phone = d.phone;
   if (!st.email || st.email === 'web@wnm.ac.th') st.email = d.email;
@@ -981,7 +982,7 @@ function vVerify() {
   <div class="card"><div><label for="vf-req">เลือกหนังสือที่จะตรวจสอบ</label><select id="vf-req" data-ch="vfreq"><option value="">— เลือกหนังสือ —</option>${opts}</select></div><div style="margin-top:12px"><label for="vf-q">ค้นหาผู้สำเร็จการศึกษาในฐานข้อมูล</label><input id="vf-q" data-in="vfq" value="${esc(U.vq)}" placeholder="รหัส / เลขบัตร / ชื่อ-สกุล / ระดับชั้น / วันที่จบ / GPA / ปพ.1 ชุดที่-เลขที่ / ค้างชำระ"></div><div id="vf-quick">${quickResults()}</div></div>
   ${r ? verifyPanel(r) : `<div class="card empty">เลือกหนังสือจากรายการด้านบนเพื่อเริ่มตรวจสอบ</div>`}`;
 }
-const DEBT_NOTE_DEFAULT = 'โปรดแจ้งเจ้าของประวัติติดต่องานวัดและประเมินผลโดยเร็ว';
+const DEBT_NOTE_DEFAULT = 'ติดต่อสถาบันเดิมโดยด่วน';
 const debtNote = () => (S.settings.debtNote || '').trim() || DEBT_NOTE_DEFAULT;
 /* ข้อมูลที่ต้องครบก่อนยืนยันว่า "สำเร็จการศึกษาจริง" */
 function missingData(p, r) {
@@ -994,7 +995,7 @@ function missingData(p, r) {
   return m;
 }
 const incompleteOf = r => r.persons.filter(p => missingData(p, r).length);
-const hasDebt = p => { const s = p.result === 'found' && getStu(p.matchedId); return !!s && outstanding(s.id) > 0; };
+const hasDebt = p => { const s = p.result !== 'notfound' && p.matchedId && getStu(p.matchedId); return !!s && outstanding(s.id) > 0; };
 /* หมายเหตุที่แสดงในหนังสือ/หน้าหน่วยงาน (ไม่ระบุยอดเงิน) */
 function letterNote(p) {
   const base = p.note || (p.result === 'found' ? '' : DEFAULT_NOTE[p.result] || '');
