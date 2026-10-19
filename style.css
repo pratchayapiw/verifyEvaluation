@@ -662,8 +662,10 @@ select.res{min-width:184px}
 .letter.fit3 .lt-foot{margin-top:.55cm}
 
 /* ตราโรงเรียน มุมบนขวาของบัญชีรายชื่อแนบท้าย */
-.letter.encl .en-logo{position:absolute;top:1cm;right:2cm;height:2.3cm;width:auto;max-width:none}
-@media print{.letter.encl .en-logo{top:-.5cm;right:0}}
+/* ระยะขอบตามงานสารบรรณ: หน้าแรก ครุฑห่างขอบบน 1.5 ซม. · หน้าถัดไป ขอบบน 2.5 ซม. · ซ้าย 3 ซม. · ขวา 2 ซม. · ล่าง 2 ซม. */
+.letter.encl{padding-top:2.5cm}
+.letter.encl .en-logo{position:absolute;top:1.5cm;right:2cm;height:2.3cm;width:auto;max-width:none}
+@media print{.letter.encl{padding-top:1cm}.letter.encl .en-logo{top:0;right:0}}
 
 /* ประทับตราหนังสือเข้า */
 .letter.stampdoc{width:21cm;min-height:0;padding:0;overflow:hidden;page:stamp;margin:0 auto 18px}

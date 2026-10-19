@@ -1,6 +1,6 @@
 /* WNM-Educational Measurement and Evaluation Section Ver.1 — ระบบรับ–ส่งและตรวจสอบวุฒิการศึกษา (Prototype, เก็บข้อมูลในเบราว์เซอร์) */
 /* รุ่นของระบบ — release.py ปรับให้อัตโนมัติทุกครั้งที่ปรับปรุง ห้ามแก้ด้วยมือ */
-const APP_VERSION = { no: 'Ver.22', at: '19/10/2569 12:46' };
+const APP_VERSION = { no: 'Ver.23', at: '19/10/2569 12:57' };
 'use strict';
 
 /* ---------- ค่าคงที่ ---------- */
