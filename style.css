@@ -718,4 +718,3 @@ select.res{min-width:184px}
 
 /* ตราประทับโรงเรียนบนฉบับลงนามอิเล็กทรอนิกส์ (ทับลายเซ็นด้านซ้าย) */
 .letter .lt-sign .sp{position:relative}
-.letter .lt-sign .lt-seal{left:calc(50% - 3.7cm);top:-.85cm;width:2.4cm;opacity:.72;transform:none}
