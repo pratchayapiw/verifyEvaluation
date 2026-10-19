@@ -1,6 +1,6 @@
 /* WNM-Educational Measurement and Evaluation Section Ver.1 — ระบบรับ–ส่งและตรวจสอบวุฒิการศึกษา (Prototype, เก็บข้อมูลในเบราว์เซอร์) */
 /* รุ่นของระบบ — release.py ปรับให้อัตโนมัติทุกครั้งที่ปรับปรุง ห้ามแก้ด้วยมือ */
-const APP_VERSION = { no: 'Ver.10', at: '8/10/2569 17:53' };
+const APP_VERSION = { no: 'Ver.18', at: '19/10/2569 11:30' };
 'use strict';
 
 /* ---------- ค่าคงที่ ---------- */
@@ -523,7 +523,7 @@ function autoCheckReq(r, quiet) {
 function autoReceive() {
   const list = S.requests.filter(r => r.status === 'submitted');
   list.forEach(r => {
-    r.status = 'received'; r.regNo = r.regNo || ''; r.recvDate = isoOf(new Date(r.submittedAt || Date.now())); r.autoRecv = true;
+    r.status = 'received'; r.regNo = r.regNo || ''; r.recvDate = isoOf(new Date(r.submittedAt || Date.now())); r.recvTime = r.recvTime || hhmm(r.submittedAt || Date.now()); r.autoRecv = true;
     addTL(r, 'โรงเรียนรับหนังสือเข้าระบบแล้ว (รับอัตโนมัติ)', true);
     autoCheckReq(r);
   });
@@ -830,7 +830,7 @@ function vAgency() {
 
 /* ---------- กล่องคำขอออนไลน์ (เจ้าหน้าที่) ---------- */
 function regInputs(r, k) {
-  return `<div class="row reg-row"><div><label for="${k}-reg-${r.id}">เลขทะเบียนรับ (งานธุรการ)</label><input id="${k}-reg-${r.id}" placeholder="เช่น ${esc(nextRegNo() || '1234/' + beYear())}" style="width:170px"></div><div><label for="${k}-date-${r.id}">วันที่รับ</label><input type="date" id="${k}-date-${r.id}" value="${esc(r.recvDate || todayISO())}"></div><button type="button" class="btn btn-green sm" data-act="savereg" data-k="${k}" data-id="${r.id}">บันทึกเลขรับ</button></div>`;
+  return `<div class="row reg-row"><div><label for="${k}-reg-${r.id}">เลขทะเบียนรับ (งานธุรการ)</label><input id="${k}-reg-${r.id}" ${inRangeOn() && nextRegNo() ? `value="${esc(nextRegNo())}"` : ''} placeholder="เช่น ${esc(nextRegNo() || '1234/' + beYear())}" style="width:170px"></div><div><label for="${k}-date-${r.id}">วันที่รับ</label><input type="date" id="${k}-date-${r.id}" value="${esc(r.recvDate || todayISO())}"></div><button type="button" class="btn btn-green sm" data-act="savereg" data-k="${k}" data-id="${r.id}">บันทึกเลขรับ</button></div>`;
 }
 function onlineInbox() {
   const list = waitReg(), returned = S.requests.filter(r => r.status === 'returned').length;
@@ -905,6 +905,7 @@ function vDash() {
 
 function vReceive() {
   const d = U.draft, inbox = waitReg().length, nReg = REQS().length;
+  if (!d.editingId && !d.regno && inRangeOn()) d.regno = nextRegNo();
   const opt = v => ['', 'ม.3', 'ม.6'].map(o => `<option value="${o}" ${v === o ? 'selected' : ''}>${o || '–'}</option>`).join('');
   if (d.editingId) U.rtab = 'form';
   return `<div class="pagehead"><h1>รับหนังสือขอตรวจสอบวุฒิ</h1><p class="muted">ขั้นตอนที่ 1 · ลงทะเบียนรับหนังสือจากหน่วยงาน แล้วระบุรายชื่อผู้ที่ขอให้ตรวจสอบ</p></div>
@@ -986,7 +987,7 @@ const DEBT_NOTE_DEFAULT = 'ติดต่อสถาบันเดิมโ�
 const debtNote = () => (S.settings.debtNote || '').trim() || DEBT_NOTE_DEFAULT;
 /* ข้อมูลที่ต้องครบก่อนยืนยันว่า "สำเร็จการศึกษาจริง" */
 function missingData(p, r) {
-  if (p.result !== 'found') return [];
+  if (p.result !== 'found' || p.manual) return [];
   const s = getStu(p.matchedId); if (!s) return ['ไม่ได้จับคู่กับฐานข้อมูล'];
   const m = [];
   if (!s.pp1Set) m.push('ปพ.1 ชุดที่'); if (!s.pp1No) m.push('ปพ.1 เลขที่');
@@ -1005,7 +1006,7 @@ function letterNote(p) {
 function verifyPanel(r) {
   const pend = r.persons.filter(unconf).length, inc = r.status === 'replied' ? [] : incompleteOf(r), debt = r.persons.filter(hasDebt);
   return `<div class="card"><div class="between wrap"><div><span class="eyebrow">เลขรับ ${regLbl(r)} · ${r.form == 1 ? 'แบบที่ 1 แนบบัญชีรายชื่อจากหน่วยงาน' : 'แบบที่ 2 ระบุรายชื่อ'}</span><h2 style="margin:4px 0">${esc(r.agency)}</h2><p class="muted small" style="margin:0">หนังสือที่ ${esc(r.docNo)} ลงวันที่ ${fmtLong(r.docDate)} · รับเมื่อ ${fmtLong(r.recvDate)}${r.file ? ' · ไฟล์แนบ ' + esc(r.file) : ''}${r.source === 'online' ? ' · <span class="badge info">ส่งผ่านระบบออนไลน์</span>' : ''}</p>${attChips(r)}</div>
-  <div class="row">${statusBadge(r)}${r.status !== 'replied' ? `<button type="button" class="btn btn-outline" data-act="editreq" data-id="${r.id}">✏️ แก้ไขข้อมูลรับหนังสือ</button>${r.persons.length ? `<button type="button" class="btn btn-outline" data-act="automatch" data-id="${r.id}" title="ระบบตรวจเทียบให้อัตโนมัติตั้งแต่รับหนังสือ ใช้ปุ่มนี้เมื่อเพิ่งนำเข้าฐานข้อมูลใหม่">⚡ ตรวจเทียบอีกครั้ง</button>` : ''}${r.persons.some(p => p.confirmed === false && p.result === 'found') ? `<button type="button" class="btn btn-green" data-act="confirmall" data-id="${r.id}">✔ ยืนยันผลที่ตรงกับฐานข้อมูล (${r.persons.filter(p => p.confirmed === false && p.result === 'found').length})</button>` : ''}` : ''}<button type="button" class="btn btn-green" data-act="letter" data-id="${r.id}" ${pend || inc.length || !r.persons.length ? 'disabled' : ''}>📝 หนังสือตอบ</button></div></div>
+  <div class="row">${statusBadge(r)}<button type="button" class="btn btn-outline" data-act="stampopen" data-id="${r.id}" title="ประทับตรารับหนังสือ ตรารองผู้อำนวยการ และตราผู้อำนวยการลงบนไฟล์หนังสือเข้า">🔖 ประทับตราหนังสือเข้า</button>${r.status !== 'replied' ? `<button type="button" class="btn btn-outline" data-act="editreq" data-id="${r.id}">✏️ แก้ไขข้อมูลรับหนังสือ</button>${r.persons.length ? `<button type="button" class="btn btn-outline" data-act="automatch" data-id="${r.id}" title="ระบบตรวจเทียบให้อัตโนมัติตั้งแต่รับหนังสือ ใช้ปุ่มนี้เมื่อเพิ่งนำเข้าฐานข้อมูลใหม่">⚡ ตรวจเทียบอีกครั้ง</button>` : ''}${r.persons.some(p => p.confirmed === false && p.result === 'found') ? `<button type="button" class="btn btn-green" data-act="confirmall" data-id="${r.id}">✔ ยืนยันผลที่ตรงกับฐานข้อมูล (${r.persons.filter(p => p.confirmed === false && p.result === 'found').length})</button>` : ''}` : ''}<button type="button" class="btn btn-green" data-act="letter" data-id="${r.id}" ${pend || inc.length || !r.persons.length ? 'disabled' : ''}>📝 หนังสือตอบ</button></div></div>
   ${!r.persons.length && r.status !== 'replied' ? `<p class="notice warn row" style="margin-top:14px">ยังไม่มีรายชื่อผู้ขอตรวจสอบในหนังสือฉบับนี้ <button type="button" class="btn btn-outline sm" data-act="editreq" data-id="${r.id}">✏️ เพิ่มรายชื่อ</button></p>` : ''}
   ${r.replyHow || r.dueText ? `<p class="small" style="margin:10px 0 0">${r.dueText ? `<b>กำหนดส่ง:</b> ${esc(r.dueText)}${dueOf(r) && !findDate(r.dueText) ? ` (ภายใน ${fmtLong(dueOf(r))})` : ''}` : ''}${r.dueText && r.replyHow ? ' · ' : ''}${r.replyHow ? `<b>ช่องทางที่ขอให้ตอบกลับ:</b> ${esc(r.replyHow)}` : ''}</p>` : ''}
   ${!r.regNo && r.status !== 'replied' ? `<div class="notice warn regbox" style="margin-top:14px"><b>📨 ระบบรับหนังสือฉบับนี้อัตโนมัติจากคำขอออนไลน์</b> — กรอกเลขทะเบียนรับและวันที่รับจากงานธุรการ${regInputs(r, 'vf')}</div>` : ''}
@@ -1406,6 +1407,7 @@ function vSettings() {
   <h2 class="span2" style="margin:0">หนังสือส่งออก</h2>
   ${f('docPrefix', 'รหัสหนังสือออก (นำหน้าเลขหนังสือ)', st.docPrefix, 'ศธ 04xxx.xx/')}
   <div class=""><label for="st-outNoYear">รูปแบบเลขที่หนังสือส่ง (ค่าเริ่มต้น เปลี่ยนรายฉบับได้)</label><select id="st-outNoYear"><option value="0" ${st.outNoYear ? '' : 'selected'}>ไม่ใส่ปี พ.ศ. เช่น ที่ ${esc(st.docPrefix)}121</option><option value="1" ${st.outNoYear ? 'selected' : ''}>ใส่ปี พ.ศ. เช่น ที่ ${esc(st.docPrefix)}121/${beYear()}</option></select></div>
+  <div class="span2 range-box"><b>ช่วงเลขรับหนังสือเข้าที่ได้รับจัดสรรจากงานธุรการ (ไม่บังคับ)</b><div class="grid g3"><div><label for="st-inFrom">ตั้งแต่เลขที่</label><input id="st-inFrom" inputmode="numeric" value="${st.inFrom || ''}" placeholder="เช่น 1801"></div><div><label for="st-inTo">ถึงเลขที่</label><input id="st-inTo" inputmode="numeric" value="${st.inTo || ''}" placeholder="เช่น 1900"></div><div><label for="st-inYear">รูปแบบเลขรับ</label><select id="st-inYear"><option value="1" ${st.inYear === false ? '' : 'selected'}>ใส่ปี พ.ศ. เช่น 1801/${beYear()}</option><option value="0" ${st.inYear === false ? 'selected' : ''}>ไม่ใส่ปี เช่น 1801</option></select></div></div><p class="muted small" style="margin:0">${inRangeOn() ? `เหลือ ${inLeft()} เลข · เลขรับถัดไป: <b>${esc(nextRegNo() || 'ใช้ครบแล้ว')}</b> · ระบบกรอกเลขนี้ให้อัตโนมัติเมื่อรับหนังสือ (แก้ได้) และข้ามเลขที่ใช้แล้ว` : 'เว้นว่างได้ · ถ้ากำหนดช่วง ระบบจะกรอกเลขรับถัดไปให้อัตโนมัติเมื่อรับหนังสือ (แก้ได้)'}</p></div>
   <div class="span2 range-box"><b>ช่วงเลขหนังสือส่งที่ได้รับจัดสรรจากงานธุรการ</b><div class="grid g3"><div><label for="st-outFrom">ตั้งแต่เลขที่</label><input id="st-outFrom" inputmode="numeric" value="${st.outFrom}"></div><div><label for="st-outTo">ถึงเลขที่</label><input id="st-outTo" inputmode="numeric" value="${st.outTo}"></div><div><label for="st-nextOut">เลขถัดไปที่จะใช้</label><input id="st-nextOut" inputmode="numeric" value="${Math.max(st.nextOut, st.outFrom)}"></div></div><p class="muted small" style="margin:0">เหลือ ${outLeft()} เลข · เลขถัดไป: ที่ ${esc(st.docPrefix)}${Math.max(st.nextOut, st.outFrom)}${st.outNoYear ? '/' + beYear() : ''}</p></div>
   <div><label for="st-slaDays">กำหนดตอบหนังสือภายใน (วัน)</label><input id="st-slaDays" type="number" min="1" max="60" value="${slaDays()}"><p class="muted small" style="margin:6px 0 0">ใช้แจ้งเตือนหนังสือที่ใกล้หรือเกินกำหนด</p></div>
   <div><label for="st-dbFromYear">ฐานข้อมูลผู้สำเร็จการศึกษามีตั้งแต่ปีที่จบ (พ.ศ.)</label><input id="st-dbFromYear" inputmode="numeric" value="${dbFromYear()}"><p class="muted small" style="margin:6px 0 0">ผู้ที่จบก่อนปีนี้และไม่พบในฐานข้อมูล ระบบจะให้เจ้าหน้าที่ตรวจสอบเอง</p></div>
@@ -1436,7 +1438,8 @@ const DEFAULT_NOTE = { mismatch: 'ข้อมูลไม่ตรงกับ�
 function resultRows(r) {
   const multi = r.persons.length > 1, gpa = showGpa(r);
   return r.persons.map((p, i) => {
-    const s = getStu(p.matchedId), useS = s && p.result !== 'notfound';
+    const s0 = getStu(p.matchedId), mc = p.manual && !s0 && p.manualCheck ? p.manualCheck : null;
+    const s = s0 || (mc ? { sid: mc.sid || p.sid, level: mc.level || p.level, gradDate: parseDateAny(mc.gradText || '') || p.gradDate, gpa: fmtGpa(mc.gpa) || mc.gpa || '' } : null), useS = s && p.result !== 'notfound';
     const gd = useS && s.gradDate ? s.gradDate : p.gradDate, ok = p.result === 'found';
     const note = letterNote(p);
     return `<tr>${multi ? `<td class="c">${i + 1}</td>` : ''}<td class="nm">${esc(pName(p))}</td><td class="c">${esc((useS ? s.sid : p.sid) || '-')}</td><td class="c">${esc((useS ? s.level : p.level) || '-')}</td><td class="c dt">${gd ? fmtShortDate(gd) : '-'}</td>${gpa ? `<td class="c">${useS && s.gpa ? esc(s.gpa) : '-'}</td>` : ''}<td class="c tick">${ok ? '✓' : ''}</td><td class="c tick">${ok || p.result === 'pending' ? '' : '✓'}</td><td>${esc(note)}</td></tr>`;
@@ -1526,9 +1529,11 @@ function letterHTML(r) {
   return `<img class="garuda" src="${GARUDA_SRC}" alt="ตราครุฑ">` + numFix(body);
 }
 /* หน้าแนบ (แบบที่ 1): บัญชีรายชื่อพร้อมผลการตรวจสอบ */
+/* ตราโรงเรียน (ใช้ภาพเดียวกับโลโก้ที่หัวเว็บ) — แสดงมุมบนขวาของบัญชีรายชื่อแนบท้าย */
+const schoolLogo = () => { const im = document.querySelector('.brand-logo'); return im && im.getAttribute('src') || ''; };
 function enclHTML(r) {
-  const st = S.settings;
-  return numFix(`<p class="en-title">${ENCL_TITLE}</p>
+  const st = S.settings, logo = schoolLogo();
+  return (logo ? `<img class="en-logo" src="${logo}" alt="ตราโรงเรียน">` : '') + numFix(`<p class="en-title">${ENCL_TITLE}</p>
   <p class="en-sub en-agency">${esc(r.agency)}</p>
   <p class="en-sub">ตามหนังสือ${esc(r.agency)}</p>
   <p class="en-sub en-ref">ที่ ${esc(r.docNo)} ลงวันที่ ${fmtLong(r.docDate)}</p>
@@ -1722,6 +1727,7 @@ function initPad() {
 }
 
 function renderModal() {
+  if (U.stampId) return renderStampModal();
   const m = $('#modal'), r = getReq(U.letterId);
   if (!r) { m.hidden = true; m.innerHTML = ''; document.body.style.overflow = ''; return; }
   m.hidden = false; document.body.style.overflow = 'hidden';
@@ -1736,7 +1742,7 @@ function renderModal() {
     ${channels().filter(c => c.on !== false && c.name).map(c => `<button type="button" class="btn ${U.panel === 'ch:' + c.id ? 'btn-primary' : 'btn-outline'} sm" data-act="panel" data-p="ch:${esc(c.id)}">${esc(c.icon || '📨')} ${esc(c.name)}</button>`).join('')}
     ${lock ? '' : `<button type="button" class="btn btn-outline sm" data-act="sent" data-id="${r.id}">บันทึกว่าส่งแล้ว (วิธีอื่น)</button>`}
     <button type="button" class="btn btn-outline sm" data-act="copyletter">คัดลอกข้อความหนังสือ</button></div>
-    ${lock ? deliveryLine(r) : ''}${sendPanel(r)}`;
+    ${lock ? `${deliveryLine(r)}<div class="row" style="margin-top:8px"><button type="button" class="btn btn-outline sm" data-act="recall" title="ดึงหนังสือตอบกลับมาแก้ไขแล้วส่งใหม่ (ใช้เลขที่หนังสือเดิม)">↩️ ดึงหนังสือกลับมาแก้ไข</button></div>` : readyBox(r)}${sendPanel(r)}`;
   m.innerHTML = `<div class="modal-bar"><div><b>หนังสือแจ้งผลการตรวจสอบวุฒิ</b> <span class="muted small">· เลขรับ ${regLbl(r)} · ${esc(r.agency)} · ${statusBadge(r)}</span></div>
   <div class="row">${!r.outNo ? `<button type="button" class="btn btn-yellow sm" data-act="issue" data-id="${r.id}">ออกเลขหนังสือส่ง</button>` : ''}<button type="button" class="btn btn-primary sm" data-act="pdf">💾 ดาวน์โหลด PDF</button>${canPrint ? `<button type="button" class="btn btn-outline sm" data-act="print">🖨️ พิมพ์</button>` : ''}<button type="button" class="btn btn-dark sm" data-act="closemodal">ปิด</button></div></div>
   <div class="lw">
@@ -2101,7 +2107,41 @@ ${st.school}
 โทร. ${st.phone || '-'}  อีเมล ${st.email || '-'}`
   };
 }
+/* ตรวจความพร้อมก่อนส่งหนังสือตอบ: ไม่มีลายเซ็นหรือข้อมูลไม่ครบ = ส่งไม่ได้ */
+function sendProblems(r, method, info = {}) {
+  const P = [];
+  if (!r.persons.length) P.push('ยังไม่มีรายชื่อผู้ขอตรวจสอบ');
+  const pend = r.persons.filter(unconf).length; if (pend) P.push(`ยังตรวจสอบ/ยืนยันผลไม่ครบ ${pend} ราย`);
+  const inc = incompleteOf(r).length; if (inc) P.push(`ข้อมูลผู้สำเร็จการศึกษาไม่ครบ ${inc} ราย (เช่น ปพ.1 ชุดที่/เลขที่ วันที่จบ)`);
+  const miss = [!String(r.agency || '').trim() && 'ชื่อหน่วยงาน', !String(r.docNo || '').trim() && 'เลขที่หนังสือ', !r.docDate && 'ลงวันที่'].filter(Boolean);
+  if (miss.length) P.push('ข้อมูลหนังสือของหน่วยงานไม่ครบ: ' + miss.join(', '));
+  if (!(useSigned(r) || sysSigned(r))) P.push('ยังไม่มีลายเซ็น: แนบหนังสือตัวจริงที่ ผอ. ลงนามแล้ว (หัวข้อ 3) หรือเปิด "ใส่ภาพลายเซ็นในหนังสือ" (หัวข้อ 1)');
+  if (method === 'email' && !/^\S+@\S+\.\S+$/.test(String(info.to || ''))) P.push('อีเมลผู้รับไม่ถูกต้อง');
+  if (method === 'post' && !String(r.aaddr || '').trim()) P.push('ยังไม่มีที่อยู่หน่วยงานสำหรับส่งไปรษณีย์');
+  return P;
+}
+function sendBlocked(r, method, info) {
+  const P = sendProblems(r, method, info); if (!P.length) return false;
+  U.secOpen = Object.assign(U.secOpen || {}, { send: true });
+  toast('ยังส่งหนังสือตอบไม่ได้ · ' + P.join(' · '), 'err'); renderModal(); return true;
+}
+function readyBox(r) {
+  if (r.status === 'replied') return '';
+  const P = sendProblems(r);
+  return P.length ? `<div class="notice warn small" style="margin:0 0 8px"><b>ตรวจก่อนส่ง: ยังส่งไม่ได้</b><ul style="margin:4px 0 0;padding-left:18px">${P.map(x => `<li>${esc(x)}</li>`).join('')}</ul></div>`
+    : '<p class="notice ok small" style="margin:0 0 8px">✔ พร้อมส่ง: มีลายเซ็น และข้อมูลครบถ้วนแล้ว</p>';
+}
+/* ดึงหนังสือตอบที่ส่งแล้วกลับมาแก้ไข: ใช้เลขที่หนังสือเดิม หน่วยงานเห็นสถานะว่าโรงเรียนดึงกลับไปแก้ไข */
+function recallReply(r) {
+  if (r.delivery) r.deliveries = (r.deliveries || []).concat([r.delivery]);
+  r.delivery = null; r.sentDate = ''; r.recalledAt = Date.now(); delete r.publicResults;
+  if (CLOUD && r.replyPdf) sb.storage.from('replies').remove([`${r.id}.pdf`]).catch(() => {});
+  r.replyPdf = false; r.replyName = '';
+  r.status = 'done'; addTL(r, 'โรงเรียนดึงหนังสือแจ้งผลกลับไปแก้ไข และจะส่งฉบับแก้ไขให้อีกครั้ง', true);
+  refreshStatus(r); save();
+}
 function markSent(r, method, info) {
+  if (sendBlocked(r, method, info)) return false;
   if (!issueNumber(r)) return false;
   r.status = 'replied'; r.sentDate = todayISO();
   r.delivery = Object.assign({ method, at: Date.now() }, info);
@@ -2358,8 +2398,14 @@ function priorHTML(p, r) {
 }
 
 /* ---------- ช่วยกรอกฟอร์มรับหนังสือ ---------- */
+/* ช่วงเลขรับหนังสือเข้า (งานธุรการจัดสรร) · ใส่ปีหรือไม่ก็ได้ */
+const inRangeOn = () => { const st = S.settings; return st.inFrom > 0 && st.inTo >= st.inFrom; };
+const regNum = (n, y) => S.settings.inYear === false ? String(n) : `${n}/${y}`;
+function inUsed() { const y = String(beYear()), set = new Set(); S.requests.forEach(r => { const m = String(r.regNo || '').replace(/\s/g, '').match(/^(\d+)(?:\/(\d{4}))?$/); if (m && (!m[2] || m[2] === y)) set.add(+m[1]); }); return set; }
+function inLeft() { if (!inRangeOn()) return 0; const st = S.settings, u = inUsed(); let n = 0; for (let i = st.inFrom; i <= st.inTo; i++) if (!u.has(i)) n++; return n; }
 function nextRegNo() {
   const y = String(beYear());
+  if (inRangeOn()) { const st = S.settings, u = inUsed(); for (let i = st.inFrom; i <= st.inTo; i++) if (!u.has(i)) return regNum(i, y); return ''; }
   const ns = S.requests.map(r => String(r.regNo || '').replace(/\s/g, '').match(/^(\d+)\/(\d{4})$/)).filter(m => m && m[2] === y).map(m => +m[1]);
   return ns.length ? `${Math.max(...ns) + 1}/${y}` : '';
 }
@@ -2667,12 +2713,13 @@ function regImportCard() {
 /* ---------- ตรวจสอบเองโดยเจ้าหน้าที่ (กรณีไม่พบในฐานข้อมูล) ----------
    เจ้าหน้าที่ตรวจกับหลักฐานจริง (ปพ.3 / สมุดทะเบียน / แฟ้มนักเรียน) แล้วบันทึกผล
    ถ้าสำเร็จการศึกษาจริง ระบบเพิ่มรายชื่อเข้าฐานข้อมูลผู้สำเร็จการศึกษาให้ด้วย (ใช้ซ้ำได้ครั้งหน้า) */
-const MANUAL_EVIDENCE = ['ปพ.3 (แบบรายงานผู้สำเร็จการศึกษา) ต้นฉบับ', 'สมุดทะเบียนนักเรียน', 'ปพ.1 ฉบับสำเนาคู่ฉบับ', 'แฟ้มประวัตินักเรียน', 'ระบบสารสนเทศของโรงเรียน'];
+const MANUAL_EXT = 'แหล่งข้อมูลภายนอก (ค้นจากระบบ/หน่วยงานภายนอก)';
+const MANUAL_EVIDENCE = [MANUAL_EXT, 'ปพ.3 (แบบรายงานผู้สำเร็จการศึกษา) ต้นฉบับ', 'สมุดทะเบียนนักเรียน', 'ปพ.1 ฉบับสำเนาคู่ฉบับ', 'แฟ้มประวัตินักเรียน', 'ระบบสารสนเทศของโรงเรียน'];
 const manualOpenFor = (r, i) => U.manual && U.manual.r === r.id && U.manual.i === i;
 function manualBtn(r, p, i) {
   if (r.status === 'replied' || manualOpenFor(r, i)) return '';
   if (getStu(p.matchedId) && p.result !== 'notfound') return '';
-  return `<div style="margin-top:8px"><button type="button" class="btn ${p.needManual || p.result === 'notfound' ? 'btn-primary' : 'btn-outline'} sm" data-act="manualopen" data-r="${r.id}" data-i="${i}">✍️ ตรวจสอบเอง ${p.needManual ? `(จบก่อนปี ${dbFromYear()} ไม่มีในฐานข้อมูล)` : '(กรณีไม่พบในฐานข้อมูล)'}</button></div>`;
+  return `<div class="row" style="margin-top:8px;gap:6px"><button type="button" class="btn btn-green sm" data-act="manualquick" data-r="${r.id}" data-i="${i}" title="ค้นหาจากแหล่งข้อมูลภายนอกแล้ว ยืนยันผลได้ทันที ไม่ต้องกรอกข้อมูล">✔ ตรวจสอบแล้ว · สำเร็จการศึกษาจริง</button><button type="button" class="btn ${p.needManual || p.result === 'notfound' ? 'btn-primary' : 'btn-outline'} sm" data-act="manualopen" data-r="${r.id}" data-i="${i}">✍️ ตรวจสอบเอง ${p.needManual ? `(จบก่อนปี ${dbFromYear()} ไม่มีในฐานข้อมูล)` : '(กรณีไม่พบในฐานข้อมูล)'}</button></div>`;
 }
 function manualRow(r, p, i) {
   const m = p.manualCheck || {}, lv = ['ม.3', 'ม.6'];
@@ -2680,7 +2727,7 @@ function manualRow(r, p, i) {
   return `<tr class="manual-row"><td></td><td colspan="6"><div class="manual-box" data-r="${r.id}" data-i="${i}">
     <div class="between wrap"><b>✍️ ตรวจสอบเองโดยเจ้าหน้าที่ · ${esc(pName(p))}</b><button type="button" class="icon-btn" data-act="manualclose" aria-label="ปิด">✕</button></div>
     ${p.needManual ? `<p class="notice info" style="margin:0">ผู้นี้จบปี พ.ศ. ${gradYearBE(p)} ซึ่งก่อนปีที่มีในฐานข้อมูลอิเล็กทรอนิกส์ (ตั้งแต่ ${dbFromYear()}) ตรวจจาก ปพ.3 ต้นฉบับ สมุดทะเบียนนักเรียน หรือ ปพ.1 สำเนาคู่ฉบับ ของรุ่นนั้น</p>` : ''}
-    <p class="muted small" style="margin:0">ตรวจกับหลักฐานของโรงเรียนแล้วกรอกผล ถ้า "สำเร็จการศึกษาจริง" ระบบจะเพิ่มรายชื่อนี้เข้าฐานข้อมูลผู้สำเร็จการศึกษาให้ และใช้ข้อมูลนี้ในหนังสือตอบ</p>
+    <p class="muted small" style="margin:0">ตรวจจากหลักฐานของโรงเรียนหรือแหล่งข้อมูลภายนอกแล้ว เลือกผลและกดบันทึกได้เลย · <b>ช่องข้อมูลไม่บังคับกรอก</b> ระบบไม่ตรวจซ้ำกับฐานข้อมูล · ถ้ากรอกเลขประจำตัว ระดับชั้น และวันที่จบครบ ระบบจะเพิ่มเข้าฐานข้อมูลผู้สำเร็จการศึกษาให้ด้วย · ตารางในหนังสือตอบใช้ข้อมูลที่กรอก (ถ้าไม่กรอก ใช้ข้อมูลตามหนังสือของหน่วยงาน)</p>
     <div class="grid g4">
       <div><label for="mc-sid">เลขประจำตัวนักเรียน</label><input id="mc-sid" value="${v('sid', p.sid)}" inputmode="numeric"></div>
       <div><label for="mc-cid">เลขบัตรประชาชน</label><input id="mc-cid" value="${v('cid', p.cid)}" inputmode="numeric" maxlength="17"></div>
@@ -2697,6 +2744,19 @@ function manualRow(r, p, i) {
     <div class="row end"><button type="button" class="btn btn-outline" data-act="manualclose">ยกเลิก</button><button type="button" class="btn btn-primary" data-act="manualsave">บันทึกผลการตรวจสอบเอง</button></div>
   </div></td></tr>`;
 }
+/* บันทึกว่าเจ้าหน้าที่ตรวจสอบแล้ว (ไม่ผูกกับฐานข้อมูล) — ใช้ข้อมูลที่กรอก (ถ้ามี) หรือข้อมูลตามหนังสือในตารางผล */
+function manualMark(r, p, m, res, note) {
+  Object.assign(p, { result: res, matchedId: null, manual: true, confirmed: true, needManual: false, manualCheck: m });
+  if (note !== undefined) p.note = note;
+  p.auto = `ตรวจสอบเองโดยเจ้าหน้าที่ · หลักฐาน: ${m.evidence || '-'}`;
+  addTL(r, `ตรวจสอบเอง: ${pName(p)} → ${RESULT[res].t} (หลักฐาน: ${m.evidence || '-'})`);
+  U.manual = null; refreshStatus(r); save(); render();
+  toast(`บันทึกผล "${RESULT[res].t}" ของ ${pName(p)} แล้ว`);
+}
+function manualQuick(b) {
+  const r = getReq(b.dataset.r), p = r && r.persons[+b.dataset.i]; if (!p) return;
+  manualMark(r, p, { evidence: MANUAL_EXT, result: 'found', by: CLOUD && U.me ? U.me.email : 'เจ้าหน้าที่', at: Date.now(), quick: true }, 'found');
+}
 function manualSave() {
   const box = $('.manual-box'); if (!box) return;
   const r = getReq(box.dataset.r), p = r && r.persons[+box.dataset.i]; if (!p) return;
@@ -2705,8 +2765,8 @@ function manualSave() {
   const m = { sid: digits(val('mc-sid')), cid: digits(val('mc-cid')), level: val('mc-level'), gradText: val('mc-date'), gpa: val('mc-gpa'), pp1Set: digits(val('mc-pp1s')), pp1No: digits(val('mc-pp1n')), evidence: val('mc-ev'), result: res, by: CLOUD && U.me ? U.me.email : 'เจ้าหน้าที่', at: Date.now() };
   const gd = parseDateAny(m.gradText);
   if (res === 'found') {
-    const miss = [!m.sid && 'เลขประจำตัวนักเรียน', !m.level && 'ระดับชั้นที่จบ', !gd && 'วันที่จบ'].filter(Boolean);
-    if (miss.length) return toast('กรอกให้ครบเพื่อยืนยันว่าสำเร็จการศึกษาจริง: ' + miss.join(', '), 'err');
+    /* ข้อมูลไม่บังคับ: กรอกครบ (เลขประจำตัว + ระดับชั้น + วันที่จบ) จึงเพิ่มเข้าฐานข้อมูล ถ้าไม่ครบ บันทึกผลตามที่เจ้าหน้าที่ยืนยันอย่างเดียว */
+    if (!(m.sid && m.level && gd)) { manualMark(r, p, m, 'found', val('mc-note')); return; }
     let s = S.students.find(x => (m.cid && x.cid === m.cid) || (sidKey(x.sid) === sidKey(m.sid) && x.level === m.level));
     const data = { sid: m.sid, cid: m.cid, prefix: p.prefix, fname: p.fname, lname: p.lname, level: m.level, gradDate: gd, gpa: fmtGpa(m.gpa) || m.gpa, pp1Set: m.pp1Set ? m.pp1Set.padStart(5, '0') : '', pp1No: m.pp1No ? m.pp1No.padStart(6, '0') : '', source: 'ตรวจสอบเองโดยเจ้าหน้าที่ (' + (m.evidence || 'หลักฐานของโรงเรียน') + ')' };
     if (s) Object.keys(data).forEach(k => { if (data[k] && !s[k]) s[k] = data[k]; });
@@ -2718,6 +2778,163 @@ function manualSave() {
   addTL(r, `ตรวจสอบเอง: ${pName(p)} → ${RESULT[p.result].t} (หลักฐาน: ${m.evidence || '-'})`);
   U.manual = null; refreshStatus(r); save(); render();
   toast(res === 'found' ? `บันทึกผลแล้ว และเพิ่ม ${pName(p)} เข้าฐานข้อมูลผู้สำเร็จการศึกษา` : 'บันทึกผลการตรวจสอบแล้ว');
+}
+
+/* ---------- ประทับตราหนังสือเข้า (ตราดิจิทัลวางทับไฟล์หนังสือของหน่วยงาน) ----------
+   ① ตรารับหนังสือ (ธุรการ) ② ตรารองผู้อำนวยการกลุ่มบริหารทั่วไป ③ ตราผู้อำนวยการ + ชื่อ ④ ข้อความประจำ (สั่งการกลุ่มงาน)
+   ระบบหาที่ว่างบนหน้าแรกให้อัตโนมัติ (เว้นขอบกระดาษ 1 ซม. ทับข้อความเดิมได้เล็กน้อย) ลากย้ายได้ ข้อความในตราแก้ไขได้ภายหลัง */
+const STAMP_DEF = {
+  rcv: { w: 4.1, h: 2.8, corner: 'tr', zone: [0, 1], label: 'ตรารับหนังสือ (ธุรการ)' },  /* กว้างพอดีชื่อโรงเรียน */
+  vp: { w: 9.4, h: 7.3, base: .7, corner: 'bl', zone: [0, .62], label: 'ตรารองผู้อำนวยการกลุ่มบริหารทั่วไป' },  /* base = ขนาดตรา (ลด 30%) */
+  dir: { w: 8, h: 6.6, corner: 'br', zone: [.4, 1], label: 'ตราผู้อำนวยการ' }
+};
+/* ขนาดจริงของตรา = ขนาดตั้งต้น (base) × ค่าย่อเพื่อให้พอที่ว่าง (s) */
+const stK = (k, p) => ((p && p.s) || 1) * (STAMP_DEF[k].base || 1);
+const STAMP_GROUPS = [['acad', 'กลุ่มบริหารวิชาการ'], ['hr', 'กลุ่มบริหารงานบุคคล'], ['budget', 'กลุ่มบริหารงบประมาณ'], ['gen', 'กลุ่มบริหารทั่วไป']];
+const STAMP_CACHE = {};
+const hhmm = t => { const d = new Date(t); return `${String(d.getHours()).padStart(2, '0')}.${String(d.getMinutes()).padStart(2, '0')}`; };
+const stampSchool = () => 'รร.' + String(S.settings.school || '').replace(/^โรงเรียน/, '');
+function stampPrefs() {
+  const st = S.settings;
+  return Object.assign({ vp1: '', tick: { acad: true }, vpName: '' }, st.stampPrefs || {});
+}
+function stampOf(r) {
+  if (!r.stamp) {
+    const pf = stampPrefs(), n = r.persons.length;
+    r.stamp = { pos: null, show: { rcv: true, vp: true, dir: true }, f: {
+      no: String(r.regNo || '').split('/')[0].trim(), date: r.recvDate ? fmtShortDate(r.recvDate) : '', time: r.recvTime || (r.submittedAt ? hhmm(r.submittedAt) : ''),
+      vp1: pf.vp1 || `${String(r.subject || '').trim() || 'ขอความอนุเคราะห์ตรวจสอบวุฒิการศึกษา'}${n ? ` (${n} ราย)` : ''}`, vp2: '',
+      tick: Object.assign({}, pf.tick), other: '', vpName: pf.vpName || '', know: false, agree: false, dir1: '', dir2: '' } };
+  }
+  return r.stamp;
+}
+/* ไฟล์หนังสือเข้า: ไฟล์ที่เจ้าหน้าที่แนบให้ตรา หรือไฟล์แรก (PDF/รูป) ที่หน่วยงานส่งมาทางระบบออนไลน์ */
+const isDocFile = a => a && (/pdf|image/i.test(a.type || '') || /\.(pdf|png|jpe?g|webp)$/i.test(a.name || ''));
+const stampSrc = r => r.inLetter || (r.attachments || []).find(a => isDocFile(a) && (a.data || a.path)) || null;
+async function stampSrcFile(r) {
+  const a = stampSrc(r); if (!a) return null;
+  const blob = a.data ? dataURLtoBlob(a.data) : (CLOUD && a.path ? await cloudDownload('attachments', a.path) : null);
+  return blob ? new File([blob], a.name || 'letter', { type: a.type || blob.type }) : null;
+}
+async function stampPages(r) {
+  const c = STAMP_CACHE[r.id], src = stampSrc(r), key = src ? (src.path || src.name || '') + (src.at || '') : '';
+  if (c && c.key === key) return c;
+  const f = await stampSrcFile(r); if (!f) return null;
+  const cv = await fileToCanvases(f);
+  if (!cv.length) throw new Error('อ่านหน้าหนังสือไม่ได้');
+  const pages = cv.map(x => { const k = Math.min(1, 1800 / x.height), o = document.createElement('canvas'); o.width = Math.round(x.width * k); o.height = Math.round(x.height * k); const g = o.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, o.width, o.height); g.drawImage(x, 0, 0, o.width, o.height); return { src: o.toDataURL('image/jpeg', .88), ratio: o.height / o.width, canvas: o }; });
+  return (STAMP_CACHE[r.id] = { key, pages });
+}
+/* หาที่ว่าง: ink mask + integral image ความละเอียด 24 px/ซม. */
+function stampAutoPlace(r, pg, keep) {
+  const sp = stampOf(r), PX = 24, W = 21 * PX, H = Math.round(21 * pg.ratio * PX), M = PX; /* เว้นขอบ 1 ซม. */
+  const c = document.createElement('canvas'); c.width = W; c.height = H; const g = c.getContext('2d'); g.drawImage(pg.canvas, 0, 0, W, H);
+  const d = g.getImageData(0, 0, W, H).data, ink = new Uint8Array(W * H);
+  for (let i = 0; i < W * H; i++) { const v = d[i * 4] * .3 + d[i * 4 + 1] * .59 + d[i * 4 + 2] * .11; if (v < 200) ink[i] = 1; }
+  const grow = () => { const o = ink.slice(); for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) if (o[y * W + x]) { ink[y * W + x - 1] = ink[y * W + x + 1] = ink[(y - 1) * W + x] = ink[(y + 1) * W + x] = 1; } };
+  grow(); grow();
+  let I; const integ = () => { I = new Int32Array((W + 1) * (H + 1)); for (let y = 0; y < H; y++) { let row = 0; for (let x = 0; x < W; x++) { row += ink[y * W + x]; I[(y + 1) * (W + 1) + x + 1] = I[y * (W + 1) + x + 1] + row; } } };
+  const cnt = (x, y, w, h) => I[(y + h) * (W + 1) + x + w] - I[y * (W + 1) + x + w] - I[(y + h) * (W + 1) + x] + I[y * (W + 1) + x];
+  const pos = keep && sp.pos ? Object.assign({}, sp.pos) : {};
+  Object.entries(pos).forEach(([k, p]) => { if (!sp.show[k] || !STAMP_DEF[k]) return; const x = Math.round(p.x * PX), y = Math.round(p.y * PX), w = Math.round(STAMP_DEF[k].w * stK(k, p) * PX), h = Math.round(STAMP_DEF[k].h * stK(k, p) * PX); for (let yy = Math.max(0, y); yy < Math.min(H, y + h); yy++) ink.fill(1, yy * W + Math.max(0, x), yy * W + Math.min(W, x + w)); });
+  integ();
+  Object.keys(STAMP_DEF).filter(k => sp.show[k] && !pos[k]).forEach(k => {
+    const D = STAMP_DEF[k]; let best = null;
+    for (const s of (D.base ? [1, .92] : [1, .92, .85, .8])) {
+      const w = Math.round(D.w * s * (D.base || 1) * PX), h = Math.round(D.h * s * (D.base || 1) * PX), ax = D.corner[1] === 'r' ? W - M : M, ay = D.corner[0] === 't' ? M : H - M;
+      const x0 = Math.max(M, Math.round(D.zone[0] * W)), x1 = Math.min(W - M, Math.round(D.zone[1] * W)) - w;
+      for (let y = M; y <= H - M - h; y += 3) for (let x = x0; x <= x1; x += 3) {
+        const ov = cnt(x, y, w, h) / (w * h), dist = Math.hypot((D.corner[1] === 'r' ? x + w : x) - ax, (D.corner[0] === 't' ? y : y + h) - ay);
+        const sc = ov * 6000 + dist + (1 - s) * 160;
+        if (!best || sc < best.sc) best = { sc, x, y, w, h, s, ov };
+      }
+      if (best && best.ov < .004) break; /* ทับข้อความไม่เกินราว 0.4% ของพื้นที่ตรา ถือว่าว่าง */
+    }
+    if (!best) return;
+    for (let y = best.y; y < best.y + best.h; y++) ink.fill(1, y * W + best.x, y * W + best.x + best.w);
+    integ();
+    pos[k] = { x: +(best.x / PX).toFixed(2), y: +(best.y / PX).toFixed(2), s: best.s };
+  });
+  sp.pos = pos; save();
+}
+const sv = (t, w) => `<span class="sv" style="width:${w}cm">${t ? esc(t) : ''}</span>`;  /* ข้อความบนเส้นประ */
+function stampBox(r, k) {
+  const sp = stampOf(r), f = sp.f, p = (sp.pos || {})[k]; if (!p || !sp.show[k]) return '';
+  const st = `left:${p.x}cm;top:${p.y}cm;transform:scale(${stK(k, p)});width:${STAMP_DEF[k].w}cm`;
+  const cb = on => `<span class="scb">${on ? '✓' : ''}</span>`;
+  let h = '';
+  if (k === 'rcv') h = `<div class="stp-h">${esc(stampSchool())}</div><div class="rr">รับที่ ${sv(f.no, 0)}</div><div class="rr">วันที่ ${sv(f.date, 0)}</div><div class="rr">เวลา ${sv(f.time, 0)} น.</div>`;
+  if (k === 'vp') h = `<div>เรียน ผู้อำนวยการ${esc(S.settings.school || '')}</div><div class="sl">${f.vp1 ? `<span class="sf">${esc(f.vp1)}</span>` : ''}</div><div class="sl">${f.vp2 ? `<span class="sf">${esc(f.vp2)}</span>` : ''}</div><div>เพื่อโปรดทราบและพิจารณา</div><div>เห็นควรมอบ</div>
+    <div class="sg2">${STAMP_GROUPS.map(([g, t]) => `<span>${cb(f.tick && f.tick[g])}${t}</span>`).join('')}<span class="sp2">${cb(f.tick && f.tick.other)}${sv(f.other, 7.6)}</span></div>
+    <div class="vsig"><div>ลงชื่อ <span class="sd" style="width:4.6cm"></span></div><div>(${f.vpName ? `<span class="vnm">${esc(f.vpName)}</span>` : '<span class="sd" style="width:4.6cm"></span>'})</div><div>รองผู้อำนวยการกลุ่มบริหารทั่วไป</div></div>`;
+  if (k === 'dir') { const dn = (signers().director || {}).name || S.settings.director || ''; h = `<div class="sin">${cb(f.know)}ทราบ</div><div class="sin">${cb(f.agree)}เห็นชอบตามเสนอ</div><div class="sln">${f.dir1 ? `<span class="sf">${esc(f.dir1)}</span>` : ''}</div><div class="sln">${f.dir2 ? `<span class="sf">${esc(f.dir2)}</span>` : ''}</div><div style="height:1.1cm"></div><div class="sc">(${esc(dn)})</div><div class="sc">ผู้อำนวยการ${esc(S.settings.school || '')}</div>`; }
+  return `<div class="stp stp-${k}" data-k="${k}" style="${st}" title="ลากเพื่อย้าย: ${esc(STAMP_DEF[k].label)}">${h}</div>`;
+}
+function stampDocHTML(r) {
+  const c = STAMP_CACHE[r.id]; if (!c) return '';
+  return c.pages.map((pg, i) => `<article class="letter stampdoc"${i ? '' : ' id="stampPage"'} style="height:${(21 * pg.ratio).toFixed(2)}cm"><img class="stp-bg" src="${pg.src}" alt="หนังสือเข้า หน้า ${i + 1}">${i ? '' : Object.keys(STAMP_DEF).map(k => stampBox(r, k)).join('')}</article>`).join('');
+}
+function stampSide(r) {
+  const sp = stampOf(r), f = sp.f, src = stampSrc(r);
+  const inp = (k, label, ph = '', w = '') => `<div${w ? ` style="${w}"` : ''}><label for="sf-${k}">${label}</label><input id="sf-${k}" data-ch="stf" data-f="${k}" value="${esc(f[k] || '')}" placeholder="${esc(ph)}"></div>`;
+  const chk = (k, label, on) => `<label class="chk"><input type="checkbox" data-ch="stf" data-f="${k}" ${on ? 'checked' : ''}> ${label}</label>`;
+  return `<div class="card stack" style="gap:10px"><h3 style="margin:0">ไฟล์หนังสือเข้า</h3>
+    <p class="small" style="margin:0">${src ? `📄 ${esc(src.name || 'ไฟล์หนังสือ')}${r.inLetter ? ' (เจ้าหน้าที่แนบ)' : ' (หน่วยงานส่งมาทางระบบ)'}` : '⚠️ ยังไม่มีไฟล์หนังสือเข้า แนบไฟล์สแกน (PDF / รูป) ก่อน'}</p>
+    <label class="btn btn-outline sm file-btn" style="justify-self:start">📁 ${src ? 'เปลี่ยนไฟล์หนังสือเข้า' : 'แนบไฟล์หนังสือเข้า'}<input type="file" class="vh" accept=".pdf,image/*" data-ch="stfile"></label></div>
+  <div class="card stack" style="gap:10px"><div class="between wrap"><h3 style="margin:0">ตราที่จะประทับ</h3><button type="button" class="btn btn-outline sm" data-act="stauto">🔄 หาที่ว่างใหม่อัตโนมัติ</button></div>
+    <div class="row" style="gap:6px 14px">${Object.entries(STAMP_DEF).map(([k, D]) => chk('show.' + k, D.label, sp.show[k])).join('')}</div>
+    <p class="muted small" style="margin:0">ระบบวางตราในที่ว่างของหน้าแรก เว้นขอบกระดาษ 1 ซม. · ลากตราบนหนังสือเพื่อย้ายตำแหน่งได้</p></div>
+  <div class="card stack" style="gap:10px"><h3 style="margin:0">① ตรารับหนังสือ (ธุรการ)</h3>
+    <div class="grid g3">${inp('no', 'รับที่ (เลขรับ)')}${inp('date', 'วันที่', '14 ก.ย. 2569')}${inp('time', 'เวลา (น.)', '13.00')}</div></div>
+  <div class="card stack" style="gap:10px"><h3 style="margin:0">② รองผู้อำนวยการกลุ่มบริหารทั่วไป</h3>
+    ${inp('vp1', 'บรรทัดที่ 1 (เรื่องย่อ)')}${inp('vp2', 'บรรทัดที่ 2')}
+    <div><span class="muted small">เห็นควรมอบ</span><div class="row" style="gap:4px 14px">${STAMP_GROUPS.map(([g, t]) => chk('tick.' + g, t, f.tick && f.tick[g])).join('')}${chk('tick.other', 'อื่น ๆ', f.tick && f.tick.other)}</div></div>
+    ${inp('other', 'อื่น ๆ (ระบุ)')}${inp('vpName', 'ชื่อรองผู้อำนวยการกลุ่มบริหารทั่วไป (ใต้ลายมือชื่อ · เว้นว่างได้)', 'นาย/นาง/นางสาว ...')}</div>
+  <div class="card stack" style="gap:10px"><h3 style="margin:0">③ ผู้อำนวยการ</h3>
+    <div class="row" style="gap:14px">${chk('know', 'ทราบ', f.know)}${chk('agree', 'เห็นชอบตามเสนอ', f.agree)}</div>
+    ${inp('dir1', 'ข้อสั่งการ บรรทัดที่ 1')}${inp('dir2', 'ข้อสั่งการ บรรทัดที่ 2')}
+    <button type="button" class="btn btn-outline sm" data-act="stprefs" style="justify-self:start">ใช้ช่องที่ติ๊กและชื่อรองผู้อำนวยการนี้เป็นค่าเริ่มต้นของฉบับต่อไป</button>
+    <p class="muted small" style="margin:0">ข้อความทั้งหมดบันทึกไว้กับหนังสือฉบับนี้ กลับมาแก้ไขภายหลังได้ ส่วนรูปแบบตราคงเดิม</p></div>`;
+}
+function renderStampModal() {
+  const m = $('#modal'), r = getReq(U.stampId);
+  if (!r) { U.stampId = null; m.hidden = true; m.innerHTML = ''; document.body.style.overflow = ''; return; }
+  m.hidden = false; document.body.style.overflow = 'hidden'; stampOf(r);
+  const c = STAMP_CACHE[r.id], src = stampSrc(r);
+  m.innerHTML = `<div class="modal-bar"><div><b>ประทับตราหนังสือเข้า</b> <span class="muted small">· เลขรับ ${regLbl(r)} · ${esc(r.agency)} · ที่ ${esc(r.docNo || '-')}</span></div>
+  <div class="row"><button type="button" class="btn btn-primary sm" data-act="stpdf" ${c ? '' : 'disabled'}>💾 ดาวน์โหลด PDF</button>${canPrint ? `<button type="button" class="btn btn-outline sm" data-act="print" ${c ? '' : 'disabled'}>🖨️ พิมพ์</button>` : ''}<button type="button" class="btn btn-dark sm" data-act="closemodal">ปิด</button></div></div>
+  <div class="lw"><aside class="lw-side" aria-label="ข้อความในตรา">${stampSide(r)}</aside>
+  <div class="lw-paper">${!canPrint ? '<p class="notice info modal-note">กด "ดาวน์โหลด PDF" เพื่อบันทึกหนังสือที่ประทับตราแล้ว แล้วพิมพ์จากไฟล์</p>' : ''}
+  <div class="paperwrap" id="stampDoc">${c ? stampDocHTML(r) : `<div class="card empty">${src ? 'กำลังเปิดไฟล์หนังสือเข้า…' : 'แนบไฟล์หนังสือเข้า (PDF หรือรูปสแกน) ที่แถบด้านซ้าย'}</div>`}</div></div></div>`;
+  if (!c && src && U.stampLoading !== r.id) {
+    U.stampLoading = r.id;
+    stampPages(r).then(cc => { if (cc && !stampOf(r).pos) stampAutoPlace(r, cc.pages[0]); if (U.stampId === r.id) renderStampModal(); })
+      .catch(e => toast('เปิดไฟล์หนังสือเข้าไม่สำเร็จ: ' + ((e && e.message) || e), 'err')).finally(() => { U.stampLoading = null; });
+  }
+}
+const stampRedraw = r => { const d = $('#stampDoc'); if (d && STAMP_CACHE[r.id]) d.innerHTML = stampDocHTML(r); };
+/* ลากตรา */
+document.addEventListener('pointerdown', e => {
+  const el = e.target.closest && e.target.closest('#stampPage .stp'); if (!el || !U.stampId) return;
+  const r = getReq(U.stampId), k = el.dataset.k, p = stampOf(r).pos[k], page = $('#stampPage'), cmPx = page.getBoundingClientRect().width / 21;
+  const sx = e.clientX, sy = e.clientY, ox = p.x, oy = p.y, maxY = page.getBoundingClientRect().height / cmPx;
+  el.setPointerCapture(e.pointerId); el.classList.add('drag'); e.preventDefault();
+  const mv = ev => { p.x = +Math.max(0, Math.min(21 - STAMP_DEF[k].w * stK(k, p), ox + (ev.clientX - sx) / cmPx)).toFixed(2); p.y = +Math.max(0, Math.min(maxY - STAMP_DEF[k].h * stK(k, p), oy + (ev.clientY - sy) / cmPx)).toFixed(2); el.style.left = p.x + 'cm'; el.style.top = p.y + 'cm'; };
+  const up = () => { el.removeEventListener('pointermove', mv); el.removeEventListener('pointerup', up); el.classList.remove('drag'); save(); };
+  el.addEventListener('pointermove', mv); el.addEventListener('pointerup', up);
+});
+async function stampPDF(r) {
+  const c = STAMP_CACHE[r.id]; if (!c) throw new Error('ยังไม่ได้เปิดไฟล์หนังสือเข้า');
+  await needLib('pdfkit'); if (document.fonts && document.fonts.ready) await document.fonts.ready;
+  const page = $('#stampPage'); page.classList.add('exporting');
+  try {
+    const shot = await window.html2canvas(page, { scale: 2, backgroundColor: '#ffffff', logging: false, useCORS: true, scrollX: 0, scrollY: -window.scrollY });
+    const pdf = new window.jspdf.jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait', compress: true });
+    const put = (img, ratio, i) => { if (i) pdf.addPage(); const w = ratio > 297 / 210 ? 297 / ratio : 210, h = ratio > 297 / 210 ? 297 : 210 * ratio; pdf.addImage(img, 'JPEG', (210 - w) / 2, 0, w, h); };
+    put(shot.toDataURL('image/jpeg', .9), shot.height / shot.width, 0);
+    c.pages.slice(1).forEach((pg, i) => put(pg.src, pg.ratio, i + 1));
+    return pdf.output('blob');
+  } finally { page.classList.remove('exporting'); }
 }
 
 const VIEW_FN = { dash: vDash, receive: vReceive, outgoing: vOutgoing, verify: vVerify, grads: vGrads, fees: vFees, track: vTrack, reports: vReports, settings: vSettings };
@@ -2777,6 +2994,17 @@ const ACT = {
   manualopen: b => { U.manual = { r: b.dataset.r, i: +b.dataset.i }; render(); setTimeout(() => $('.manual-box')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50); },
   manualclose: () => { U.manual = null; render(); },
   manualsave: () => manualSave(),
+  manualquick: b => manualQuick(b),
+  recall: b => { if (!armed(b, 'กดอีกครั้งเพื่อยืนยันดึงกลับ')) return; const r = getReq(U.letterId); recallReply(r); U.panel = ''; renderModal(); render(); toast('ดึงหนังสือกลับมาแก้ไขแล้ว แก้ไขเสร็จแล้วส่งใหม่ได้ (ใช้เลขที่หนังสือเดิม)'); },
+  stampopen: b => { U.letterId = null; U.stampId = b.dataset.id; renderModal(); },
+  stauto: () => { const r = getReq(U.stampId), c = STAMP_CACHE[r.id]; if (!c) return; stampAutoPlace(r, c.pages[0]); stampRedraw(r); toast('จัดตำแหน่งตราใหม่ในที่ว่างแล้ว'); },
+  stpdf: async b => {
+    const r = getReq(U.stampId); b.disabled = true;
+    try { await saveFile(await stampPDF(r), `หนังสือเข้า-ประทับตรา-รับที่ ${stampOf(r).f.no || '-'} ${r.agency || ''}.pdf`.replace(/[\\/:*?"<>|]/g, ' ').replace(/\s+/g, ' ')); toast('บันทึกหนังสือเข้าที่ประทับตราแล้ว'); }
+    catch (e) { if (!e || e.code !== 'declined') toast('สร้าง PDF ไม่สำเร็จ: ' + ((e && e.message) || e), 'err'); }
+    b.disabled = false;
+  },
+  stprefs: () => { const sp = stampOf(getReq(U.stampId)); S.settings.stampPrefs = { vp1: '', tick: Object.assign({}, sp.f.tick), vpName: sp.f.vpName || '' }; save(); toast('บันทึกเป็นค่าเริ่มต้นของหนังสือฉบับต่อไปแล้ว'); },
   pickstu: b => {
     const r = getReq(b.dataset.r), p = r && r.persons[+b.dataset.i], s = getStu(b.dataset.s); if (!p || !s) return;
     const m = compareWith(p, s);
@@ -2891,7 +3119,7 @@ const ACT = {
     save(); render(); toast(`บันทึกเลขทะเบียนรับ ${reg} แล้ว`);
   },
   letter: b => { const lr = getReq(b.dataset.id); if (lr && !lr.regNo && lr.status !== 'replied') { toast('กรอกเลขทะเบียนรับจากงานธุรการก่อนสร้างหนังสือตอบ', 'err'); U.reqId = lr.id; go('verify'); return; } if (lr && lr.status !== 'replied' && incompleteOf(lr).length) { toast('ข้อมูลผู้สำเร็จการศึกษายังไม่ครบ (ปพ.1 / วันที่จบ) กรอกในหน้าตรวจสอบก่อน', 'err'); U.reqId = lr.id; go('verify'); return; } U.letterId = b.dataset.id; U.panel = ''; U.mail = null; U.post = null; U.modalView = 'letter'; renderModal(); },
-  closemodal: () => { U.letterId = null; U.panel = ''; U.mail = null; U.post = null; U.modalView = 'letter'; renderModal(); render(); },
+  closemodal: () => { U.stampId = null; U.letterId = null; U.panel = ''; U.mail = null; U.post = null; U.modalView = 'letter'; renderModal(); render(); },
   issue: b => { const r = getReq(b.dataset.id); if (!issueNumber(r)) return; save(); renderModal(); toast(`ออกเลขหนังสือส่ง ${S.settings.docPrefix}${r.outNo}`); },
   sent: b => { const r = getReq(b.dataset.id); if (!markSent(r, 'other', {})) return; render(); toast('บันทึกการส่งหนังสือแล้ว'); },
   print: () => window.print(),
@@ -2939,6 +3167,7 @@ const ACT = {
   mailsend: async b => {
     const r = getReq(U.letterId), m = U.mail, st = S.settings;
     if (!/^\S+@\S+\.\S+$/.test(m.to)) return toast('กรอกอีเมลผู้รับให้ถูกต้อง', 'err');
+    if (sendBlocked(r, 'email', { to: m.to })) return;
     b.disabled = true; b.textContent = 'กำลังส่ง...';
     try {
       if (!issueNumber(r)) { renderModal(); return; } save();
@@ -3132,6 +3361,26 @@ const IN = {
   feq: el => { U.fq = el.value; $('#fe-table').innerHTML = feesTable(); }
 };
 const CH = {
+  stf: el => {
+    const r = getReq(U.stampId), sp = stampOf(r), f = el.dataset.f;
+    if (f.startsWith('show.')) { const k = f.slice(5); sp.show[k] = el.checked; const c = STAMP_CACHE[r.id]; if (el.checked && c && !(sp.pos || {})[k]) stampAutoPlace(r, c.pages[0], true); }
+    else if (f.startsWith('tick.')) sp.f.tick = Object.assign({}, sp.f.tick, { [f.slice(5)]: el.checked });
+    else sp.f[f] = el.type === 'checkbox' ? el.checked : (el.tagName === 'TEXTAREA' ? el.value.replace(/\s+$/, '') : el.value.trim());
+    save(); stampRedraw(r);
+  },
+  stfile: async el => {
+    const r = getReq(U.stampId), file = el.files[0]; if (!r || !file) return;
+    toast('กำลังแนบไฟล์หนังสือเข้า...');
+    try {
+      if (CLOUD) {
+        const ext = (file.name.match(/\.[a-z0-9]+$/i) || ['.pdf'])[0], path = `inletter/${r.id}-${Date.now()}${ext}`;
+        const { error } = await sb.storage.from('attachments').upload(path, file, { contentType: file.type || 'application/octet-stream', upsert: true });
+        if (error) throw new Error(cloudMsg(error));
+        r.inLetter = { name: file.name, type: file.type, path, at: Date.now() };
+      } else r.inLetter = { name: file.name, type: file.type, data: await blobToDataURL(file), at: Date.now() };
+      delete STAMP_CACHE[r.id]; stampOf(r).pos = null; save(); renderStampModal();
+    } catch (e) { toast('แนบไฟล์ไม่สำเร็จ: ' + ((e && e.message) || e), 'err'); }
+  },
   churl: el => { const r = getReq(U.letterId); r.chUrl = Object.assign({}, r.chUrl, { [el.dataset.c]: el.value.trim() }); save(); renderModal(); },
   chset: el => { const c = chOf(el.dataset.c); if (!c) return; const f = el.dataset.f; c[f] = f === 'on' ? el.checked : el.value.trim(); save(); if (f === 'on' || f === 'url') render(); },
   dbpick: el => { const fs = [...el.files], h = $('#db-picked'); if (h) h.innerHTML = fs.length ? `เลือก ${fs.length} ไฟล์: ${fs.map(f => esc(f.name) + (levelFromName(f.name) ? ` <span class="badge info">${levelFromName(f.name)}</span>` : '')).join(' · ')}` : ''; },
@@ -3309,7 +3558,7 @@ const FORMS = {
       U.draft = newDraft(); U.reqId = old.id; go('verify'); toast(changed.length ? `บันทึกการแก้ไขหนังสือเลขรับ ${reg} แล้ว` : 'ไม่มีข้อมูลที่เปลี่ยนแปลง');
       return;
     }
-    const r = { id: uid('r'), regNo: reg, recvDate: d.date || todayISO(), agency: d.agency.trim(), to: d.to.trim(), docNo: d.docno.trim(), docDate: d.docdate, email: d.email.trim().toLowerCase(), aaddr: (d.aaddr || '').trim(), aphone: (d.aphone || '').trim(), dueText: (d.due || '').trim(), replyHow: (d.how || '').trim(), dueDate: parseDue(d.due, d.date || todayISO()), form: d.form, file: d.form == 1 ? d.file : '', persons, status: 'received', outNo: '', outDate: '', sentDate: '', timeline: [] };
+    const r = { id: uid('r'), regNo: reg, recvDate: d.date || todayISO(), recvTime: hhmm(Date.now()), agency: d.agency.trim(), to: d.to.trim(), docNo: d.docno.trim(), docDate: d.docdate, email: d.email.trim().toLowerCase(), aaddr: (d.aaddr || '').trim(), aphone: (d.aphone || '').trim(), dueText: (d.due || '').trim(), replyHow: (d.how || '').trim(), dueDate: parseDue(d.due, d.date || todayISO()), form: d.form, file: d.form == 1 ? d.file : '', persons, status: 'received', outNo: '', outDate: '', sentDate: '', timeline: [] };
     addTL(r, `รับหนังสือ เลขทะเบียนรับ ${reg}`, true);
     autoCheckReq(r);
     S.requests.push(r); save();
@@ -3342,6 +3591,11 @@ const FORMS = {
     const of = parseInt($('#st-outFrom').value, 10), ot = parseInt($('#st-outTo').value, 10), nx = parseInt($('#st-nextOut').value, 10);
     if (!(of > 0 && ot >= of)) return toast('ช่วงเลขหนังสือส่งไม่ถูกต้อง (เลขเริ่มต้องไม่มากกว่าเลขสุดท้าย)', 'err');
     st.outFrom = of; st.outTo = ot; st.nextOut = nx >= of && nx <= ot + 1 ? nx : of;
+    if ($('#st-inFrom')) {
+      const inf = parseInt(thaiDigits($('#st-inFrom').value), 10) || 0, int = parseInt(thaiDigits($('#st-inTo').value), 10) || 0;
+      if ((inf || int) && !(inf > 0 && int >= inf)) return toast('ช่วงเลขรับหนังสือเข้าไม่ถูกต้อง (เลขเริ่มต้องไม่มากกว่าเลขสุดท้าย)', 'err');
+      st.inFrom = inf; st.inTo = int; st.inYear = $('#st-inYear').value !== '0';
+    }
     save(); render(); toast('บันทึกการตั้งค่าแล้ว');
   },
   stafflogin: async () => {

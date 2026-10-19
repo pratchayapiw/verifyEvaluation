@@ -96,7 +96,7 @@ end $$;
 -- ตัดข้อมูลภายในออก: ประวัติที่ไม่เปิดเผย ผลจับคู่ฐานข้อมูล ค่าบำรุง ลายเซ็น
 create or replace function public.request_public(d jsonb) returns jsonb
 language sql immutable as $$
-  select (d - 'sign' - 'enclosures' - 'showGpa' - 'regNoNote') || jsonb_build_object(
+  select (d - 'sign' - 'enclosures' - 'showGpa' - 'regNoNote' - 'stamp' - 'inLetter') || jsonb_build_object(
     'timeline', coalesce((select jsonb_agg(e) from jsonb_array_elements(coalesce(d -> 'timeline', '[]'::jsonb)) e
                           where coalesce((e ->> 'pub')::boolean, false)), '[]'::jsonb),
     'persons', coalesce((select jsonb_agg(jsonb_build_object(
