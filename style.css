@@ -699,3 +699,23 @@ select.res{min-width:184px}
 /* ลงนามรองผู้อำนวยการกลุ่มบริหารทั่วไป (ใต้ตรา) */
 .stp .vsig{text-align:center;margin:.35cm 0 0 2.2cm;line-height:1.3}
 .stp .vsig .vnm{color:#0b3d91}
+
+/* ฉบับลงนามอิเล็กทรอนิกส์: วันเวลาและรหัสตรวจสอบใต้ตำแหน่งผู้ลงนาม */
+.letter .lt-sign .esign{font-size:11.5pt;color:#444;margin-top:2pt!important;line-height:1.1}
+
+/* ปุ่มรูปแบบหนังสือตอบ (บนสุดของหน้าหนังสือ) */
+.mode-bar{display:grid;grid-template-columns:auto 1fr 1fr;gap:12px;align-items:stretch;max-width:1500px;margin:14px auto 0;padding:0 20px}
+.mode-lab{align-self:center;font-weight:800;font-size:15px;color:var(--navy,#14284b);white-space:nowrap}
+.mode-btn{display:grid;gap:4px;text-align:left;padding:12px 16px;border:2px solid var(--line,#d6dbe4);border-radius:12px;background:var(--surface,#fff);cursor:pointer;font:inherit;color:inherit;transition:border-color .15s,box-shadow .15s}
+.mode-btn b{font-size:17px}
+.mode-btn span{font-size:13px;color:var(--muted,#5b6475);line-height:1.35}
+.mode-btn:hover:not([disabled]){border-color:var(--navy,#14284b)}
+.mode-btn.on{border-color:var(--navy,#14284b);background:var(--navy,#14284b);color:#fff;box-shadow:0 2px 0 var(--gold,#c9a227)}
+.mode-btn.on span{color:#dfe6f3}
+.mode-btn[disabled]{opacity:.6;cursor:not-allowed}
+@media(max-width:900px){.mode-bar{grid-template-columns:1fr}}
+@media print{.mode-bar{display:none!important}}
+
+/* ตราประทับโรงเรียนบนฉบับลงนามอิเล็กทรอนิกส์ (ทับลายเซ็นด้านซ้าย) */
+.letter .lt-sign .sp{position:relative}
+.letter .lt-sign .lt-seal{left:calc(50% - 3.7cm);top:-.85cm;width:2.4cm;opacity:.72;transform:none}
