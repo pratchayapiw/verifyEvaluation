@@ -1,6 +1,6 @@
 /* WNM-Educational Measurement and Evaluation Section Ver.1 — ระบบรับ–ส่งและตรวจสอบวุฒิการศึกษา (Prototype, เก็บข้อมูลในเบราว์เซอร์) */
 /* รุ่นของระบบ — release.py ปรับให้อัตโนมัติทุกครั้งที่ปรับปรุง ห้ามแก้ด้วยมือ */
-const APP_VERSION = { no: 'Ver.23', at: '19/10/2569 12:57' };
+const APP_VERSION = { no: 'Ver.24', at: '19/10/2569 13:21' };
 'use strict';
 
 /* ---------- ค่าคงที่ ---------- */
@@ -873,7 +873,7 @@ function deliveryLine(r) {
   const d = r.delivery; if (!d) return '';
   const trk = d.track ? ` เลขพัสดุ <a href="https://track.thailandpost.co.th/?trackNumber=${encodeURIComponent(d.track)}" target="_blank" rel="noopener"><b>${esc(d.track)}</b></a>` : '';
   const how = d.method === 'email' ? `E-mail ถึง ${esc(d.to)}` : d.method === 'post' ? `ไปรษณีย์ (${esc(d.type)})${trk}` : d.method === 'channel' ? `${esc(d.ch)}${d.ref ? ' (' + esc(d.ref) + ')' : ''}` : 'ส่งถึงหน่วยงานแล้ว';
-  return `<p class="notice ok small" style="margin:8px 0 0">📬 ส่งหนังสือตอบเมื่อ ${fmtLong(r.sentDate)} ทาง${how}</p>`;
+  return `<p class="notice ok small" style="margin:8px 0 0">📬 ส่งหนังสือตอบเมื่อ ${fmtLong(r.sentDate)} ทาง${how}${d.rev ? ` · <b>ฉบับแก้ไขครั้งที่ ${d.rev}</b>` : ''}</p>`;
 }
 function stepper(r) {
   const cur = STATUS[r.status].step;
@@ -2160,9 +2160,10 @@ function sendBlocked(r, method, info) {
 }
 function readyBox(r) {
   if (r.status === 'replied') return '';
-  const P = sendProblems(r);
-  return P.length ? `<div class="notice warn small" style="margin:0 0 8px"><b>ตรวจก่อนส่ง: ยังส่งไม่ได้</b><ul style="margin:4px 0 0;padding-left:18px">${P.map(x => `<li>${esc(x)}</li>`).join('')}</ul></div>`
-    : '<p class="notice ok small" style="margin:0 0 8px">✔ พร้อมส่ง: มีลายเซ็น และข้อมูลครบถ้วนแล้ว</p>';
+  const P = sendProblems(r), nPrev = (r.deliveries || []).length;
+  const prevNote = nPrev ? `<p class="notice warn small" style="margin:0 0 8px">⚠️ หนังสือฉบับนี้เคยส่งแล้ว ${nPrev} ครั้ง (ล่าสุด ${deliveryText(r.deliveries[nPrev - 1])}) · การส่งครั้งนี้เป็น<b>ฉบับแก้ไขครั้งที่ ${nPrev}</b> ระบบจะถามยืนยันก่อนส่ง</p>` : '';
+  return prevNote + (P.length ? `<div class="notice warn small" style="margin:0 0 8px"><b>ตรวจก่อนส่ง: ยังส่งไม่ได้</b><ul style="margin:4px 0 0;padding-left:18px">${P.map(x => `<li>${esc(x)}</li>`).join('')}</ul></div>`
+    : '<p class="notice ok small" style="margin:0 0 8px">✔ พร้อมส่ง: มีลายเซ็น และข้อมูลครบถ้วนแล้ว</p>');
 }
 /* ดึงหนังสือตอบที่ส่งแล้วกลับมาแก้ไข: ใช้เลขที่หนังสือเดิม หน่วยงานเห็นสถานะว่าโรงเรียนดึงกลับไปแก้ไข */
 function recallReply(r) {
@@ -2172,6 +2173,32 @@ function recallReply(r) {
   r.replyPdf = false; r.replyName = '';
   r.status = 'done'; addTL(r, 'โรงเรียนดึงหนังสือแจ้งผลกลับไปแก้ไข และจะส่งฉบับแก้ไขให้อีกครั้ง', true);
   refreshStatus(r); save();
+}
+/* ป็อบอัพยืนยัน (คืนค่า true เมื่อกดยืนยัน) */
+function confirmBox({ title, html, ok = 'ยืนยัน', cancel = 'ยกเลิก', danger = false }) {
+  return new Promise(res => {
+    const el = document.createElement('div'); el.className = 'cfm-wrap'; el.setAttribute('role', 'dialog'); el.setAttribute('aria-modal', 'true');
+    el.innerHTML = `<div class="cfm"><h3>${title}</h3><div class="cfm-body">${html}</div><div class="row end"><button type="button" class="btn btn-outline" data-x="0">${cancel}</button><button type="button" class="btn ${danger ? 'btn-yellow' : 'btn-primary'}" data-x="1">${ok}</button></div></div>`;
+    const done = v => { document.removeEventListener('keydown', key); el.remove(); res(v); };
+    const key = e => { if (e.key === 'Escape') done(false); };
+    el.addEventListener('click', e => { const b = e.target.closest('[data-x]'); if (b) done(b.dataset.x === '1'); else if (e.target === el) done(false); });
+    document.addEventListener('keydown', key); document.body.appendChild(el); el.querySelector('[data-x="1"]').focus();
+  });
+}
+/* เตือนส่งหนังสือตอบซ้ำ: ฉบับนี้เคยส่งแล้ว (ดึงกลับมาแก้ไข) หรือมีหนังสือตอบของหนังสือเข้าฉบับเดียวกันส่งไปแล้ว */
+const sameDocKey = r => agencyKey(r.agency) + '|' + String(r.docNo || '').replace(/\s+/g, '');
+const deliveryText = d => !d ? '' : `${d.at ? fmtLong(isoOf(new Date(d.at))) : ''} ทาง${d.method === 'email' ? ` E-mail ${esc(d.to || '')}` : d.method === 'post' ? `ไปรษณีย์ (${esc(d.type || '')})` : d.method === 'channel' ? ` ${esc(d.ch || '')}` : 'วิธีอื่น'}`;
+async function guardResend(r) {
+  if (!r || r.status === 'replied' || sendProblems(r).length) return true;
+  const prev = r.deliveries || [], dups = String(r.docNo || '').trim() ? REQS().filter(x => x.id !== r.id && x.status === 'replied' && sameDocKey(x) === sameDocKey(r)) : [];
+  if (!prev.length && !dups.length) return true;
+  if (U.resendOK === r.id) return true;
+  const ok = await confirmBox({ title: '⚠️ หนังสือตอบฉบับนี้เคยส่งแล้ว', danger: true, ok: prev.length ? 'ยืนยันส่งฉบับแก้ไข' : 'ยืนยันส่งซ้ำ', cancel: 'ยกเลิก ไม่ส่ง',
+    html: `${prev.length ? `<p>หนังสือ ที่ ${esc(S.settings.docPrefix)}${esc(r.outNo || '')} ถึง ${esc(r.agency)} ส่งไปแล้ว <b>${prev.length} ครั้ง</b> · ครั้งล่าสุด ${deliveryText(prev[prev.length - 1])}</p><p>หากส่งตอนนี้ หน่วยงานจะได้รับ<b>ฉบับแก้ไขครั้งที่ ${prev.length}</b> (เลขที่หนังสือเดิม)</p>` : ''}
+      ${dups.length ? `<p>มีหนังสือตอบของหนังสือ ที่ ${esc(r.docNo)} จาก ${esc(r.agency)} ส่งไปแล้ว: ${dups.map(x => `เลขรับ ${esc(x.regNo || '-')} · ที่ ${esc(S.settings.docPrefix)}${esc(x.outNo || '')} · ${deliveryText(x.delivery)}`).join('<br>')}</p><p>ตรวจสอบว่าไม่ได้ลงทะเบียนรับหนังสือฉบับเดียวกันซ้ำ</p>` : ''}
+      <p class="muted small">ต้องการส่งหนังสือตอบอีกครั้งใช่หรือไม่?</p>` });
+  if (ok) U.resendOK = r.id;
+  return ok;
 }
 function markSent(r, method, info) {
   if (sendBlocked(r, method, info)) return false;
@@ -2183,6 +2210,8 @@ function markSent(r, method, info) {
   else if (method === 'post') addTL(r, `ส่งหนังสือแจ้งผลทางไปรษณีย์ (${info.type})${info.track ? ' เลขพัสดุ ' + info.track : ''}`, true);
   else if (method === 'channel') addTL(r, `ส่งหนังสือแจ้งผลทาง ${info.ch}${info.ref ? ' (' + info.ref + ')' : ''}`, true);
   else addTL(r, 'ส่งหนังสือแจ้งผลการตรวจสอบถึงหน่วยงานแล้ว', true);
+  const rev = (r.deliveries || []).length; if (rev) { r.delivery.rev = rev; r.timeline[r.timeline.length - 1].text += ` (ฉบับแก้ไขครั้งที่ ${rev})`; }
+  U.resendOK = null;
   snapshotPublic(r);
   save();
   publishReply(r);
@@ -3334,6 +3363,8 @@ const ACT = {
   resetdemo: b => { if (!armed(b, 'กดอีกครั้ง: แทนที่ข้อมูลทั้งหมด')) return; S = seed(); save(); U.reqId = null; U.trackId = null; U.lastImport = ''; render(); toast('โหลดข้อมูลตัวอย่างใหม่แล้ว'); },
   clearall: b => { if (!armed(b, 'กดอีกครั้ง: ลบทุกอย่าง')) return; S = { v: 1, settings: S.settings, agencies: S.agencies || [], students: [], fees: [], requests: [] }; save(); U.reqId = null; U.trackId = null; render(); toast('ล้างข้อมูลแล้ว'); },
 };
+/* ทุกปุ่มส่งหนังสือตอบ: ถามยืนยันก่อนเมื่อเคยส่งแล้ว */
+['sent', 'mailmark', 'mailsend', 'postmark', 'chmark'].forEach(k => { const f = ACT[k]; ACT[k] = async b => { const r = getReq((b && b.dataset && b.dataset.id) || U.letterId); if (r && !(await guardResend(r))) return; return f(b); }; });
 /* รับหนังสือ: กรอกอย่างใดอย่างหนึ่ง (รหัสประจำตัว / เลขบัตรประชาชน / ชื่อ-สกุล) แล้วดึงข้อมูลที่เหลือจากฐานข้อมูลให้อัตโนมัติ */
 function findStuFor(p, by) {
   const L = S.students, key = sidKey(p.sid), cid = digits(p.cid);

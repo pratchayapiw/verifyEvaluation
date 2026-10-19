@@ -720,3 +720,9 @@ select.res{min-width:184px}
 
 /* ตราประทับโรงเรียนบนฉบับลงนามอิเล็กทรอนิกส์ (ทับลายเซ็นด้านซ้าย) */
 .letter .lt-sign .sp{position:relative}
+
+/* ป็อบอัพยืนยัน */
+.cfm-wrap{position:fixed;inset:0;z-index:9999;background:rgba(15,23,42,.55);display:flex;align-items:center;justify-content:center;padding:16px}
+.cfm{background:var(--surface,#fff);color:var(--ink,#111);border-radius:14px;max-width:560px;width:100%;padding:20px 22px;box-shadow:0 20px 60px rgba(0,0,0,.35);display:grid;gap:12px;border-top:5px solid #c9a227}
+.cfm h3{margin:0;font-size:19px}
+.cfm-body p{margin:0 0 8px;line-height:1.55}
