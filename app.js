@@ -1415,7 +1415,7 @@ function vSettings() {
   <div class="grid g2" ${tp('stab', 'mail', 'school')}>
   <h2 class="span2" style="margin:0">บริการส่งอีเมล (Google Apps Script)</h2>
   <div class="span2"><label for="st-gasUrl">บริการส่งอีเมล (Google Apps Script Web App URL)</label><input id="st-gasUrl" value="${esc(st.gasUrl || '')}" placeholder="https://script.google.com/macros/s/.../exec"><p class="muted small" style="margin:6px 0 0">ตั้งค่าตามไฟล์ gas/Code.gs และ README ในชุดดาวน์โหลด ส่งอีเมลผ่านระบบได้เมื่อเปิดระบบจากเว็บของโรงเรียน (ไม่ใช่หน้าตัวอย่าง)</p></div>
-  <div><label for="st-gasKey">รหัสลับของบริการ (KEY)</label><input id="st-gasKey" value="${esc(st.gasKey || '')}" autocomplete="off"></div>
+  
   </div>
   <div class="row end"><button class="btn btn-primary" type="submit">บันทึกการตั้งค่า</button></div></form>
   <div ${tp('stab', 'mail', 'school')}>${channelSettings()}</div>
@@ -2134,7 +2134,7 @@ function sendPanel(r) {
   const st = S.settings, lock = r.status === 'replied';
   if (U.panel === 'email') {
     const m = U.mail || (U.mail = defaultMail(r));
-    const gas = !!st.gasUrl;
+    const gas = CLOUD || !!st.gasUrl;
     return `<div class="card send-panel"><div class="between wrap"><h3>📧 ส่งทาง E-mail</h3><button type="button" class="icon-btn" data-act="panel" data-p="" aria-label="ปิด">✕</button></div>
     <div class="grid g2"><div><label for="ml-to">ถึง</label><input id="ml-to" type="email" data-in="mail" data-f="to" value="${esc(m.to)}"></div><div><label for="ml-cc">สำเนาถึง (ถ้ามี)</label><input id="ml-cc" data-in="mail" data-f="cc" value="${esc(m.cc)}"></div></div>
     <div><label for="ml-subject">เรื่อง</label><input id="ml-subject" data-in="mail" data-f="subject" value="${esc(m.subject)}"></div>
@@ -2182,7 +2182,17 @@ function envelopeHTML(r) {
   <div class="env-to"><p>เรียน ${esc(toLine(r))}</p>${addr ? `<p>${addr}</p>` : '<p class="env-missing">(กรอกที่อยู่หน่วยงานก่อนพิมพ์)</p>'}</div>`);
 }
 async function sendViaGAS(payload) {
-  const res = await fetch(S.settings.gasUrl, { method: 'POST', body: JSON.stringify(payload) });
+  if (CLOUD) {
+    const { data, error } = await sb.functions.invoke('send-email', { body: payload });
+    if (error) {
+      let msg = error.message;
+      try { const j = await error.context.json(); if (j && j.error) msg = j.error; } catch (e) { /* อ่านข้อความผิดพลาดไม่ได้ */ }
+      throw new Error(msg);
+    }
+    if (!data || !data.ok) throw new Error((data && data.error) || 'ส่งอีเมลไม่สำเร็จ');
+    return;
+  }
+  const res = await fetch(S.settings.gasUrl, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(payload) });
   let j = null; try { j = await res.json(); } catch (e) { j = null; }
   if (!j || !j.ok) throw new Error((j && j.error) || 'บริการส่งอีเมลไม่ตอบกลับ ตรวจสอบ URL ในหน้าตั้งค่า');
 }
@@ -2935,7 +2945,7 @@ const ACT = {
       const no = st.docPrefix + r.outNo;
       m.subject = m.subject.replace('(ออกเลขเมื่อส่ง)', no); m.body = m.body.replace('(ออกเลขเมื่อส่ง)', no);
       const pdf = m.attach === false ? null : await blobToB64(await outPDF(r));
-      await sendViaGAS({ key: st.gasKey || '', to: m.to, cc: m.cc || '', subject: m.subject, text: m.body, replyTo: st.email || '', fromName: st.school, pdf, filename: pdfName(r) });
+            await sendViaGAS({ to: m.to, cc: m.cc || '', subject: m.subject, text: m.body, replyTo: st.email || '', fromName: st.school, pdf, filename: pdfName(r) });
       markSent(r, 'email', { to: m.to }); U.panel = ''; render(); toast('ส่งอีเมลเรียบร้อยแล้ว');
     } catch (e) { toast('ส่งอีเมลไม่สำเร็จ: ' + ((e && e.message) || e), 'err'); renderModal(); }
   },
@@ -3322,7 +3332,8 @@ const FORMS = {
   },
   settings: () => {
     const st = S.settings;
-    ['school', 'address', 'docPrefix', 'office', 'director', 'directorTitle', 'phone', 'email', 'gasUrl', 'gasKey', 'debtNote'].forEach(k => { st[k] = $('#st-' + k).value.trim(); });
+        ['school', 'address', 'docPrefix', 'office', 'director', 'directorTitle', 'phone', 'email', 'gasUrl', 'debtNote'].forEach(k => { st[k] = $('#st-' + k).value.trim(); });
+    delete st.gasKey;
     st.outNoYear = $('#st-outNoYear').value === '1';
     st.slaDays = Math.min(60, Math.max(1, parseInt($('#st-slaDays').value, 10) || 7));
     if ($('#st-dbFromYear')) st.dbFromYear = Math.min(2700, Math.max(2400, parseInt(thaiDigits($('#st-dbFromYear').value), 10) || 2562));
