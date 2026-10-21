@@ -1,42 +1,30 @@
-/* WNM-Educational Measurement and Evaluation Section Ver.1
-   แนวทาง: "ทะเบียนราชการ" — แถบหัวสีน้ำเงินกรมท่าพร้อมเส้นทองแบบหัวกระดาษหนังสือราชการ
-   เนื้อหาเรียบ สีกลาง ใช้สีเฉพาะเพื่อบอกสถานะ  ·  Sarabun (หัวเรื่อง/ตัวเลข) + IBM Plex Sans Thai (ส่วนใช้งาน) */
+/* WNM-Educational Measurement and Evaluation Section
+   แนวทาง: "Champagne Premium" (โทนสว่าง) — พรีเมียม สุขุม · พื้นงาช้าง แถบหัวแชมเปญอ่อน ตัวอักษรน้ำตาลเข้ม เส้นทองแชมเปญบางๆ
+   แยกโทนจากงานในห้องเรียน เหมาะกับงานทะเบียน/วัดผลและเอกสารทางการ
+   Noto Serif Thai (หัวเรื่อง) + IBM Plex Sans Thai (ส่วนใช้งาน) · หนังสือราชการ/PDF ใช้ TH Sarabun ตามเดิม */
 :root{
-  --navy:#12305c;--navy-2:#0d2547;--navy-ink:#ffffff;--navy-muted:#b9c7de;
-  --primary:#1d4f9e;--primary-ink:#ffffff;--primary-soft:rgba(29,79,158,.09);--primary-strong:#163e7e;
-  --gold:#b8902f;--gold-ink:#8a6a1e;--gold-soft:#f5eedc;
-  --red:#b3261e;--green:#1f7a4c;--blue:#2f6fcb;--yellow:#c99a16;--pink:#a24d7a;
-  --bg:#f1f3f6;--surface:#ffffff;--surface2:#f7f8fa;--line:#dde2e9;--line-2:#e9edf2;--field:#c8d0db;--outline:#b8c1cd;
-  --text:#18212f;--muted:#5a6575;--ink-bg:#18212f;--ink-fg:#ffffff;--ring:rgba(29,79,158,.35);
-  --ok-bg:#e6f2ec;--ok-fg:#17603c;--warn-bg:#fbf1d9;--warn-fg:#7a5600;--danger-bg:#f9e5e3;--danger-fg:#9b2019;--info-bg:#e7eef9;--info-fg:#1d4f9e;--neutral-bg:#eef1f5;--neutral-fg:#465163;
-  --shadow:0 12px 32px rgba(18,48,92,.12);--shadow-sm:0 1px 2px rgba(18,48,92,.06);
-  --r-lg:12px;--r:8px;--r-sm:6px;
-  --f-head:"Sarabun","IBM Plex Sans Thai",system-ui,sans-serif;
+  --navy:#2a2420;--navy-2:#1f1a17;--navy-ink:#f8f1e4;--navy-muted:#cdbd9f;
+  --primary:#8a6a3d;--primary-ink:#fffaf1;--primary-soft:rgba(154,123,79,.11);--primary-strong:#6c522d;
+  --gold:#c8a96a;--gold-ink:#8a6a3d;--gold-soft:#f4ecdc;
+  --red:#a8432f;--green:#5b7a3e;--blue:#5d7088;--yellow:#b8902f;--pink:#8f5b6b;
+  --bg:#f6f2ea;--surface:#fffdf9;--surface2:#faf6ef;--line:#e6ddcd;--line-2:#efe8db;--field:#d8ccb6;--outline:#c9baa0;
+  --text:#2b2622;--muted:#74685b;--ink-bg:#2b2622;--ink-fg:#fffaf1;--ring:rgba(154,123,79,.38);
+  --ok-bg:#edf2e6;--ok-fg:#4a6631;--warn-bg:#f7edd6;--warn-fg:#76560f;--danger-bg:#f6e5e0;--danger-fg:#96382a;--info-bg:#f1eadf;--info-fg:#6c522d;--neutral-bg:#f1ece4;--neutral-fg:#5e554b;
+  --shadow:0 14px 36px rgba(60,44,24,.10);--shadow-sm:0 1px 2px rgba(60,44,24,.07);
+  --r-lg:14px;--r:10px;--r-sm:7px;
+  --f-head:"Noto Serif Thai","Sarabun","IBM Plex Sans Thai",serif;
   --f-ui:"IBM Plex Sans Thai","Noto Sans Thai",system-ui,sans-serif;
-}
-@media (prefers-color-scheme:dark){
-  :root:not([data-theme="light"]){
-    color-scheme:dark;
-    --navy:#0f1d36;--navy-2:#0a1529;--navy-muted:#93a3c0;
-    --primary:#7aa7ec;--primary-ink:#0b1424;--primary-soft:rgba(122,167,236,.14);--primary-strong:#a3c3f3;
-    --gold:#d2ad55;--gold-ink:#e2c27a;--gold-soft:#2c2616;
-    --red:#ef7b72;--green:#5cc493;--blue:#7aa7ec;--yellow:#e0b84a;--pink:#d58cb3;
-    --bg:#0e131c;--surface:#151c28;--surface2:#1a2230;--line:#273142;--line-2:#212a39;--field:#364256;--outline:#465469;
-    --text:#e5eaf2;--muted:#9aa6b8;--ink-bg:#e5eaf2;--ink-fg:#0e131c;--ring:rgba(122,167,236,.45);
-    --ok-bg:#14301f;--ok-fg:#86d9ae;--warn-bg:#352a10;--warn-fg:#ecc96a;--danger-bg:#3a1a19;--danger-fg:#f4a39c;--info-bg:#16284a;--info-fg:#a3c3f3;--neutral-bg:#1f2836;--neutral-fg:#b6c0cf;
-    --shadow:0 12px 32px rgba(0,0,0,.45);--shadow-sm:0 1px 2px rgba(0,0,0,.3);
-  }
 }
 :root[data-theme="dark"]{
   color-scheme:dark;
-  --navy:#0f1d36;--navy-2:#0a1529;--navy-muted:#93a3c0;
-  --primary:#7aa7ec;--primary-ink:#0b1424;--primary-soft:rgba(122,167,236,.14);--primary-strong:#a3c3f3;
-  --gold:#d2ad55;--gold-ink:#e2c27a;--gold-soft:#2c2616;
-  --red:#ef7b72;--green:#5cc493;--blue:#7aa7ec;--yellow:#e0b84a;--pink:#d58cb3;
-  --bg:#0e131c;--surface:#151c28;--surface2:#1a2230;--line:#273142;--line-2:#212a39;--field:#364256;--outline:#465469;
-  --text:#e5eaf2;--muted:#9aa6b8;--ink-bg:#e5eaf2;--ink-fg:#0e131c;--ring:rgba(122,167,236,.45);
-  --ok-bg:#14301f;--ok-fg:#86d9ae;--warn-bg:#352a10;--warn-fg:#ecc96a;--danger-bg:#3a1a19;--danger-fg:#f4a39c;--info-bg:#16284a;--info-fg:#a3c3f3;--neutral-bg:#1f2836;--neutral-fg:#b6c0cf;
-  --shadow:0 12px 32px rgba(0,0,0,.45);--shadow-sm:0 1px 2px rgba(0,0,0,.3);
+  --navy:#110e0c;--navy-2:#0c0a08;--navy-ink:#f3e9d7;--navy-muted:#b5a487;
+  --primary:#d6b77d;--primary-ink:#1b150d;--primary-soft:rgba(214,183,125,.14);--primary-strong:#e6cc9a;
+  --gold:#d9bd84;--gold-ink:#e3c995;--gold-soft:#2c2417;
+  --red:#e58b78;--green:#9fc283;--blue:#a2b4c9;--yellow:#e0bf6a;--pink:#d39aab;
+  --bg:#15120f;--surface:#1d1915;--surface2:#231e19;--line:#3a322a;--line-2:#2d2721;--field:#4a4036;--outline:#5a4e41;
+  --text:#efe6d8;--muted:#b3a691;--ink-bg:#efe6d8;--ink-fg:#15120f;--ring:rgba(214,183,125,.45);
+  --ok-bg:#1f2a17;--ok-fg:#b2d39a;--warn-bg:#33280f;--warn-fg:#e9cc7c;--danger-bg:#3a1d17;--danger-fg:#f0ab9c;--info-bg:#2c2417;--info-fg:#e6cc9a;--neutral-bg:#26211b;--neutral-fg:#c9bda9;
+  --shadow:0 14px 36px rgba(0,0,0,.5);--shadow-sm:0 1px 2px rgba(0,0,0,.35);
 }
 
 *{box-sizing:border-box}
@@ -100,7 +88,6 @@ h2 .ic,h3 .ic{color:var(--primary);margin-right:2px}
 .hero{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:30px 32px;position:relative;overflow:hidden}
 .hero h1{margin:2px 0 8px;font-size:clamp(26px,3.6vw,36px);font-weight:700;color:var(--navy)}
 :root[data-theme="dark"] .hero h1{color:var(--text)}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .hero h1{color:var(--text)}}
 .hero p{margin:0;color:var(--muted);max-width:72ch}
 .hero>*{position:relative;z-index:1}
 .pagehead{padding-bottom:4px}
@@ -539,7 +526,7 @@ select.res{min-width:184px}
 .letter.copy{padding:1cm 1cm 1.2cm;height:29.7cm;min-height:29.7cm;overflow:hidden;display:flex;flex-direction:column;align-items:center;page:encl;margin-top:24px}
 .cp-frame{position:relative;flex:1;min-height:0;width:100%;display:flex;justify-content:center;align-items:flex-start}
 .cp-img{max-width:100%;max-height:100%;object-fit:contain;display:block;border:.5pt solid #bbb}
-.cp-mark{position:absolute;left:50%;top:46%;transform:translate(-50%,-50%) rotate(-28deg);width:78%;text-align:center;font-family:"THSarabunNew",Sarabun,sans-serif;font-size:22pt;line-height:1.2;font-weight:700;color:rgba(29,79,158,.22);white-space:normal;pointer-events:none}
+.cp-mark{position:absolute;left:50%;top:46%;transform:translate(-50%,-50%) rotate(-28deg);width:78%;text-align:center;font-family:"THSarabunNew",Sarabun,sans-serif;font-size:22pt;line-height:1.2;font-weight:700;color:rgba(154,123,79,.22);white-space:normal;pointer-events:none}
 .cp-cert{align-self:flex-end;margin:.25cm .6cm 0 0;text-align:center;font-family:"THSarabunNew",Sarabun,sans-serif;font-size:15pt;line-height:1.15;color:#000;min-width:6.5cm}
 .cp-cert b{font-size:17pt}
 .cp-sp{height:1.1cm;display:flex;align-items:flex-end;justify-content:center}
@@ -726,3 +713,34 @@ select.res{min-width:184px}
 .cfm{background:var(--surface,#fff);color:var(--ink,#111);border-radius:14px;max-width:560px;width:100%;padding:20px 22px;box-shadow:0 20px 60px rgba(0,0,0,.35);display:grid;gap:12px;border-top:5px solid #c9a227}
 .cfm h3{margin:0;font-size:19px}
 .cfm-body p{margin:0 0 8px;line-height:1.55}
+
+/* ===== Champagne Premium: รายละเอียดเพิ่มเติม ===== */
+h1,h2,h3{letter-spacing:.1px}
+/* โทนสว่าง: แถบหัวสีแชมเปญอ่อน ตัวหนังสือน้ำตาลเข้ม */
+.top{background:linear-gradient(180deg,#fcf8f0 0%,#f3e8d4 100%);color:var(--text);border-bottom:1px solid var(--line)}
+.brand-unit,.brand-th{color:var(--text)}
+.brand-th{border-bottom-color:rgba(60,44,24,.22)}
+.brand-dept{color:var(--gold-ink)}
+.brand-en{color:var(--muted)}
+.seg{background:rgba(255,253,249,.75);border:1px solid var(--line)}
+.seg button,.seg .seg-search{color:var(--text)}
+.seg button:hover{background:var(--primary-soft);color:var(--text)}
+.seg button.on{background:var(--primary);color:var(--primary-ink)}
+.seg .who{color:var(--text);border-right-color:var(--line)}
+.seg-search kbd{border-color:var(--line);color:var(--muted)}
+.modal-bar{background:linear-gradient(180deg,#fcf8f0 0%,#f3e8d4 100%);color:var(--text);box-shadow:0 2px 0 var(--gold)}
+.modal-bar .muted{color:var(--muted)}
+.modal-bar .btn-outline{background:var(--surface);border-color:var(--outline);color:var(--text)}
+.modal-bar .btn-outline:hover:not(:disabled){border-color:var(--primary);color:var(--text);background:var(--surface)}
+.modal-bar .badge{background:var(--gold-soft);color:var(--gold-ink)}
+.modal-bar .btn-blue{background:var(--surface);color:var(--text);border:1px solid var(--outline)}
+.modal-bar .btn-blue:hover:not(:disabled){background:var(--gold-soft)}
+.modal-bar .btn-dark{background:var(--ink-bg);color:var(--ink-fg)}
+.palette{background:rgba(43,38,34,.38)}
+.top:after{height:4px;background:linear-gradient(var(--gold) 0 1px,transparent 1px 3px,var(--gold) 3px 4px);opacity:.9}
+.brand-logo{box-shadow:0 0 0 1.5px var(--gold),0 0 0 4px rgba(200,169,106,.18)}
+.card{border-color:var(--line);box-shadow:var(--shadow-sm)}
+.mode-btn.on{background:var(--gold-soft);border-color:var(--gold);color:var(--text);box-shadow:0 2px 0 var(--gold)}
+.mode-btn.on b{color:var(--primary-strong)}
+.mode-btn.on span{color:var(--muted)}
+::selection{background:rgba(200,169,106,.35)}
