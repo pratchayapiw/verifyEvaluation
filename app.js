@@ -1,6 +1,6 @@
 /* WNM-Educational Measurement and Evaluation Section Ver.1 — ระบบรับ–ส่งและตรวจสอบวุฒิการศึกษา (Prototype, เก็บข้อมูลในเบราว์เซอร์) */
 /* รุ่นของระบบ — release.py ปรับให้อัตโนมัติทุกครั้งที่ปรับปรุง ห้ามแก้ด้วยมือ */
-const APP_VERSION = { no: 'Ver.27', at: '21/10/2569 09:29' };
+const APP_VERSION = { no: 'Ver.31', at: '03/11/2569 17:51' };
 'use strict';
 
 /* ---------- ค่าคงที่ ---------- */
@@ -129,6 +129,8 @@ function parseCSV(text) {
 /* ---------- ข้อมูล ---------- */
 /* ---------- โหมดออนไลน์ (Supabase) — ใช้เมื่อมี config.js ที่ใส่ URL และ anon key ---------- */
 const CFG = window.WNM_CONFIG || {};
+/* อ่านผลจากลิงก์ในอีเมล (ตั้งรหัสผ่านใหม่ / ลิงก์หมดอายุ) ก่อนที่ Supabase จะล้างค่าออกจาก URL */
+const AUTH_HASH = (() => { try { const h = new URLSearchParams(location.hash.replace(/^#/, '')), q = new URLSearchParams(location.search); return { recovery: h.get('type') === 'recovery' || q.get('type') === 'recovery', err: h.get('error_code') || q.get('error_code') || h.get('error') || q.get('error') || '' }; } catch (e) { return { recovery: false, err: '' }; } })();
 const CLOUD = !!(CFG.supabaseUrl && CFG.supabaseAnonKey && !/วาง|PASTE|xxxx/i.test(CFG.supabaseAnonKey) && window.supabase && window.supabase.createClient);
 const sb = CLOUD ? window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseAnonKey, { auth: { persistSession: true, autoRefreshToken: true } }) : null;
 const isUuid = v => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(v || ''));
@@ -187,25 +189,55 @@ function rowFor(t, o) {
   if (t === 'requests') Object.assign(base, { agency_id: isUuid(o.agencyId) ? o.agencyId : null, email: String(o.email || '').toLowerCase() || null, status: o.status || null });
   return base;
 }
+/* รวมการแก้ไขพร้อมกันจากหลายเครื่อง (เจ้าหน้าที่ ธุรการ นายทะเบียน): ช่องที่เครื่องนี้แก้ใช้ของเครื่องนี้ ช่องอื่นใช้ของล่าสุดบนระบบ · ประวัติการดำเนินการรวมทั้งสองฝั่ง */
+function merge3(base, mine, theirs) {
+  const out = Object.assign({}, theirs);
+  new Set([...Object.keys(mine), ...Object.keys(base || {})]).forEach(k => {
+    if (JSON.stringify(mine[k]) !== JSON.stringify(base ? base[k] : undefined)) { if (k in mine) out[k] = mine[k]; else delete out[k]; }
+  });
+  if (Array.isArray(mine.timeline) && Array.isArray(theirs.timeline)) {
+    const seen = new Set();
+    out.timeline = [...theirs.timeline, ...mine.timeline].filter(e => { const key = e.t + '|' + e.text; if (seen.has(key)) return false; seen.add(key); return true; }).sort((a, b) => a.t - b.t);
+  }
+  return out;
+}
+const replaceIn = (o, n) => { Object.keys(o).forEach(k => delete o[k]); Object.assign(o, n); };
 let saveTimer = null, saving = false, saveAgain = false;
 function cloudQueueSave() { clearTimeout(saveTimer); setSync('pending'); saveTimer = setTimeout(cloudSave, 600); }
 async function cloudSave() {
   saveTimer = null;
   if (saving) { saveAgain = true; return; }
   saving = true; setSync('saving');
+  let mergedN = 0;
   try {
     for (const t of ['students', 'fees', 'requests']) {
       const cur = new Map(S[t].map(o => [o.id, JSON.stringify(o)]));
       const up = [];
       for (const [id, js] of cur) if (synced[t].get(id) !== js) up.push(rowFor(t, JSON.parse(js)));
       const del = [...synced[t].keys()].filter(id => !cur.has(id));
+      if (t === 'requests' && up.length) {
+        const srv = new Map(), ids = up.map(x => x.id);
+        for (let i = 0; i < ids.length; i += 200) { const { data, error } = await sb.from('requests').select('id,data').in('id', ids.slice(i, i + 200)); if (error) throw error; (data || []).forEach(x => srv.set(x.id, x.data)); }
+        up.forEach((row, i) => {
+          const th = srv.get(row.id), baseJs = synced.requests.get(row.id);
+          if (!th || !baseJs || JSON.stringify(th) === baseJs) return;
+          const merged = merge3(JSON.parse(baseJs), row.data, th), o = S.requests.find(x => x.id === row.id);
+          if (o) replaceIn(o, merged);
+          up[i] = rowFor('requests', merged); cur.set(row.id, JSON.stringify(merged)); mergedN++;
+        });
+      }
       for (let i = 0; i < up.length; i += 300) { const { error } = await sb.from(t).upsert(up.slice(i, i + 300)); if (error) throw error; }
       for (let i = 0; i < del.length; i += 200) { const { error } = await sb.from(t).delete().in('id', del.slice(i, i + 200)); if (error) throw error; }
       synced[t] = cur;
     }
     const sj = JSON.stringify(S.settings);
-    if (sj !== synced.settings) { const { error } = await sb.from('settings').upsert({ id: 1, data: S.settings, updated_at: new Date().toISOString() }); if (error) throw error; synced.settings = sj; }
+    if (sj !== synced.settings) {
+      const cs = await sb.from('settings').select('data').eq('id', 1).maybeSingle();
+      if (!cs.error && cs.data && cs.data.data && JSON.stringify(cs.data.data) !== synced.settings) { replaceIn(S.settings, merge3(JSON.parse(synced.settings || '{}'), S.settings, cs.data.data)); mergedN++; }
+      const { error } = await sb.from('settings').upsert({ id: 1, data: S.settings, updated_at: new Date().toISOString() }); if (error) throw error; synced.settings = JSON.stringify(S.settings);
+    }
     setSync('ok');
+    if (mergedN) { const a = document.activeElement; if (!(a && /INPUT|TEXTAREA|SELECT/.test(a.tagName))) { render(); if (U.letterId || U.stampId) renderModal(); } toast('รวมการแก้ไขจากผู้ใช้อื่นที่บันทึกพร้อมกันแล้ว'); }
   } catch (e) {
     setSync('error', cloudMsg(e)); toast('บันทึกขึ้นระบบไม่สำเร็จ: ' + cloudMsg(e), 'err');
   } finally {
@@ -241,14 +273,17 @@ async function cloudEnter(profile) {
 }
 async function cloudLogin(email, pw, expectRole) {
   const { error } = await sb.auth.signInWithPassword({ email, password: pw });
-  if (error) throw new Error(/Invalid login/i.test(error.message) ? 'อีเมลหรือรหัสผ่านไม่ถูกต้อง' : /not confirmed/i.test(error.message) ? 'ยังไม่ได้ยืนยันอีเมล กดลิงก์ยืนยันในอีเมลก่อน' : cloudMsg(error));
+  if (error) throw new Error(/Invalid login/i.test(error.message) ? 'อีเมลหรือรหัสผ่านไม่ถูกต้อง (ถ้าจำรหัสผ่านไม่ได้ กด "ลืมรหัสผ่าน?")' : /not confirmed/i.test(error.message) ? 'ยังไม่ได้ยืนยันอีเมล กดลิงก์ยืนยันในอีเมลก่อน' : cloudMsg(error));
   const prof = await fetchProfile();
   if (expectRole === 'staff' && prof && prof.role !== 'staff') { await sb.auth.signOut(); throw new Error('บัญชีนี้ไม่ใช่บัญชีเจ้าหน้าที่ ใช้หน้าเข้าสู่ระบบของหน่วยงานภายนอก'); }
   if (expectRole === 'agency' && prof && prof.role === 'staff') { await sb.auth.signOut(); throw new Error('บัญชีนี้เป็นบัญชีเจ้าหน้าที่ ใช้หน้าเข้าสู่ระบบเจ้าหน้าที่'); }
   await cloudEnter(prof);
 }
 async function cloudBoot() {
+  sb.auth.onAuthStateChange(ev => { if (ev === 'PASSWORD_RECOVERY' && !U.recovery) { U.recovery = true; U.forgot = null; render(); } });
+  if (AUTH_HASH.err) { U.mode = 'staff'; U.forgot = 'staff'; U.authErr = /expired|otp|invalid/i.test(AUTH_HASH.err) ? 'ลิงก์ในอีเมลหมดอายุหรือถูกใช้ไปแล้ว (ลิงก์ใช้ได้ครั้งเดียว) ขอลิงก์ใหม่ด้านล่าง' : 'ลิงก์ในอีเมลใช้ไม่ได้ ขอลิงก์ใหม่ด้านล่าง'; history.replaceState(null, '', location.pathname); return; }
   const { data: { session } } = await sb.auth.getSession();
+  if (AUTH_HASH.recovery || U.recovery) { U.recovery = true; history.replaceState(null, '', location.pathname); return; }
   if (!session) return;
   try { await cloudEnter(await fetchProfile()); } catch (e) { U.authErr = cloudMsg(e); }
 }
@@ -718,12 +753,32 @@ function vHome() {
 function vStaffLogin() {
   const def = !CLOUD && !S.settings.staffPwHash;
   return `<div class="auth-wrap"><form class="card form auth" data-form="stafflogin" novalidate><span class="eyebrow">เจ้าหน้าที่</span><h2 style="margin:0">เข้าสู่ระบบเจ้าหน้าที่</h2>
-  ${CLOUD ? '<div><label for="sl-email">อีเมลเจ้าหน้าที่</label><input id="sl-email" type="email" autocomplete="username" required></div>' : ''}
+  ${CLOUD ? `<div><label for="sl-email">อีเมลเจ้าหน้าที่</label><input id="sl-email" type="email" autocomplete="username" required value="${esc(U.loginEmail || '')}"></div>` : ''}
   <div><label for="sl-pw">${CLOUD ? 'รหัสผ่าน' : 'รหัสผ่านเจ้าหน้าที่'}</label><input id="sl-pw" type="password" autocomplete="current-password" required></div>
   ${U.authErr ? `<p class="notice danger" style="margin:0">${esc(U.authErr)}</p>` : ''}
   <button class="btn btn-primary" type="submit">เข้าสู่ระบบ</button>
+  ${CLOUD ? '<button type="button" class="linkbtn forgot-link" data-act="forgot" data-r="staff">ลืมรหัสผ่าน?</button>' : ''}
   ${def ? `<p class="hint" style="margin:0">ยังใช้รหัสเริ่มต้น <b>${DEFAULT_STAFF_PW}</b> อยู่ เข้าระบบแล้วเปลี่ยนได้ที่ ⚙️ ตั้งค่า</p>` : ''}
   <button type="button" class="btn btn-outline" data-act="home">← กลับหน้าแรก</button></form></div>`;
+}
+/* ลืมรหัสผ่าน: ส่งลิงก์ตั้งรหัสผ่านใหม่ทางอีเมล (Supabase Auth) */
+function vForgot() {
+  const st = U.forgot === 'staff';
+  return `<div class="auth-wrap"><form class="card form auth" data-form="forgotpw" novalidate><span class="eyebrow">${st ? 'เจ้าหน้าที่' : 'หน่วยงานภายนอก'}</span><h2 style="margin:0">ลืมรหัสผ่าน</h2>
+  <p class="muted small" style="margin:0">กรอกอีเมลที่ใช้เข้าสู่ระบบ ระบบจะส่งลิงก์สำหรับตั้งรหัสผ่านใหม่ไปที่อีเมลนี้ ลิงก์ใช้ได้ครั้งเดียวภายใน 1 ชั่วโมง</p>
+  <div><label for="fp-email">อีเมล</label><input id="fp-email" type="email" autocomplete="username" required value="${esc(U.fpEmail || '')}"></div>
+  ${U.authErr ? `<p class="notice danger" style="margin:0">${esc(U.authErr)}</p>` : ''}${U.authOk ? `<p class="notice ok" style="margin:0">${esc(U.authOk)}</p>` : ''}
+  <button class="btn btn-primary" type="submit">ส่งลิงก์ตั้งรหัสผ่านใหม่</button>
+  <button type="button" class="btn btn-outline" data-act="forgotback">← กลับไปหน้าเข้าสู่ระบบ</button></form></div>`;
+}
+function vResetPw() {
+  return `<div class="auth-wrap"><form class="card form auth" data-form="resetpw" novalidate><span class="eyebrow">ตั้งรหัสผ่านใหม่</span><h2 style="margin:0">ตั้งรหัสผ่านใหม่</h2>
+  <p class="muted small" style="margin:0">ยืนยันตัวตนจากลิงก์ในอีเมลแล้ว ตั้งรหัสผ่านใหม่อย่างน้อย 8 ตัวอักษร</p>
+  <div><label for="rp-new">รหัสผ่านใหม่</label><input id="rp-new" type="password" autocomplete="new-password" required></div>
+  <div><label for="rp-new2">ยืนยันรหัสผ่านใหม่</label><input id="rp-new2" type="password" autocomplete="new-password" required></div>
+  ${U.authErr ? `<p class="notice danger" style="margin:0">${esc(U.authErr)}</p>` : ''}
+  <button class="btn btn-primary" type="submit">บันทึกรหัสผ่านใหม่และเข้าสู่ระบบ</button>
+  <button type="button" class="btn btn-outline" data-act="resetcancel">ยกเลิก</button></form></div>`;
 }
 function vAgencyAuth() {
   const reg = U.aTab === 'register';
@@ -731,9 +786,10 @@ function vAgencyAuth() {
   const tabs = `<div class="seg" role="tablist"><button type="button" class="${reg ? '' : 'on'}" data-act="atab" data-t="login">เข้าสู่ระบบ</button><button type="button" class="${reg ? 'on' : ''}" data-act="atab" data-t="register">ลงทะเบียนหน่วยงาน</button></div>`;
   const err = (U.authErr ? `<p class="notice danger" style="margin:0">${esc(U.authErr)}</p>` : '') + (U.authOk ? `<p class="notice ok" style="margin:0">${esc(U.authOk)}</p>` : '');
   if (!reg) return `<div class="auth-wrap"><form class="card form auth" data-form="alogin" novalidate><span class="eyebrow">หน่วยงานภายนอก</span>${tabs}
-    <div><label for="al-email">อีเมลที่ลงทะเบียน</label><input id="al-email" type="email" autocomplete="username" required></div>
+    <div><label for="al-email">อีเมลที่ลงทะเบียน</label><input id="al-email" type="email" autocomplete="username" required value="${esc(U.loginEmail || '')}"></div>
     <div><label for="al-pw">รหัสผ่าน</label><input id="al-pw" type="password" autocomplete="current-password" required></div>
     ${err}<button class="btn btn-blue" type="submit">เข้าสู่ระบบ</button>
+    ${CLOUD ? '<button type="button" class="linkbtn forgot-link" data-act="forgot" data-r="agency">ลืมรหัสผ่าน?</button>' : ''}
     ${demo ? `<div class="hint"><span>บัญชีทดลอง: ${esc(demo.email)} / ${esc(demo.pw0)}</span><button type="button" class="btn btn-outline sm" data-act="ademo" data-id="${demo.id}">กรอกให้</button></div>` : ''}
     <button type="button" class="btn btn-outline" data-act="home">← กลับหน้าแรก</button></form></div>`;
   return `<div class="auth-wrap"><form class="card form auth wide" data-form="aregister" novalidate><span class="eyebrow">หน่วยงานภายนอก</span>${tabs}
@@ -829,19 +885,20 @@ function vAgency() {
 }
 
 /* ---------- กล่องคำขอออนไลน์ (เจ้าหน้าที่) ---------- */
-function regInputs(r, k) {
-  return `<div class="row reg-row"><div><label for="${k}-reg-${r.id}">เลขทะเบียนรับ (งานธุรการ)</label><input id="${k}-reg-${r.id}" ${inRangeOn() && nextRegNo() ? `value="${esc(nextRegNo())}"` : ''} placeholder="เช่น ${esc(nextRegNo() || '1234/' + beYear())}" style="width:170px"></div><div><label for="${k}-date-${r.id}">วันที่รับ</label><input type="date" id="${k}-date-${r.id}" value="${esc(r.recvDate || todayISO())}"></div><button type="button" class="btn btn-green sm" data-act="savereg" data-k="${k}" data-id="${r.id}">บันทึกเลขรับ</button></div>`;
+function regInputs(r, k, label, now) {
+  return `<div class="row reg-row"><div><label for="${k}-reg-${r.id}">เลขทะเบียนรับ (งานธุรการ)</label><input id="${k}-reg-${r.id}" ${inRangeOn() && nextRegNo() ? `value="${esc(nextRegNo())}"` : ''} placeholder="เช่น ${esc(nextRegNo() || '1234/' + beYear())}" style="width:170px"></div><div><label for="${k}-date-${r.id}">วันที่รับ</label><input type="date" id="${k}-date-${r.id}" value="${esc(now ? todayISO() : (r.recvDate || todayISO()))}"></div><div><label for="${k}-time-${r.id}">เวลา (น.)</label><input id="${k}-time-${r.id}" value="${esc(now ? hhmm(Date.now()) : (r.recvTime || ''))}" placeholder="13.00" style="width:90px"></div><button type="button" class="btn btn-green sm" data-act="savereg" data-k="${k}" data-id="${r.id}">${label || 'บันทึกเลขรับ'}</button></div>`;
 }
 function onlineInbox() {
-  const list = waitReg(), returned = S.requests.filter(r => r.status === 'returned').length;
-  return `<div class="card inbox"><div class="between wrap"><h2 style="margin:0">📨 หนังสือจากหน่วยงานภายนอก (รับอัตโนมัติ) ${list.length ? `<span class="badge danger">รอลงเลขรับ ${list.length}</span>` : ''}</h2>${returned ? `<span class="muted small">ส่งกลับให้แก้ไข ${returned} รายการ (รอหน่วยงานแก้ไข)</span>` : ''}</div>
-  <p class="muted small" style="margin:6px 0 0">คำขอที่หน่วยงานส่งผ่านระบบ ระบบรับเข้าทะเบียนและตรวจเทียบฐานข้อมูลให้ทันที เจ้าหน้าที่เพียงกรอกเลขทะเบียนรับ/วันที่รับจากงานธุรการ แล้วตรวจทานและยืนยันผล</p>
+  const list = inboxList(), returned = S.requests.filter(r => r.status === 'returned').length, rt = routeOn();
+  const cnt = st => list.filter(r => routeStage(r) === st).length;
+  return `<div class="card inbox"><div class="between wrap"><h2 style="margin:0">📨 หนังสือจากหน่วยงานภายนอก (รับอัตโนมัติ) ${!rt && list.length ? `<span class="badge danger">รอลงเลขรับ ${list.length}</span>` : ''}${rt ? [['new', 'รอส่งธุรการ', 'danger'], ['clerk', 'รอธุรการลงรับ', 'warn'], ['back', 'รอรับคืน (ผอ. ทราบ)', 'info']].map(([k, t, c]) => cnt(k) ? ` <span class="badge ${c}">${t} ${cnt(k)}</span>` : '').join('') : ''}</h2>${returned ? `<span class="muted small">ส่งกลับให้แก้ไข ${returned} รายการ (รอหน่วยงานแก้ไข)</span>` : ''}</div>
+  <p class="muted small" style="margin:6px 0 0">${rt ? 'คำขอที่หน่วยงานส่งผ่านระบบ ระบบรับเข้าและตรวจเทียบฐานข้อมูลให้ทันที · ① เจ้าหน้าที่ส่งให้งานธุรการในระบบ (หรือพิมพ์ให้ธุรการ) ② ธุรการลงเลขรับ วันที่ เวลา แล้วส่งกลับในระบบ ไม่ต้องเดินหนังสือฉบับจริง และพิมพ์หนังสือพร้อมตรารับเสนอลงนามตามปกติ ③ เมื่อรองผู้อำนวยการและผู้อำนวยการทราบแล้ว เจ้าหน้าที่กดรับหนังสือคืน แล้วตรวจสอบตามขั้นตอนเดิม (แนบฉบับเกษียณภายหลังได้)' : 'คำขอที่หน่วยงานส่งผ่านระบบ ระบบรับเข้าทะเบียนและตรวจเทียบฐานข้อมูลให้ทันที เจ้าหน้าที่เพียงกรอกเลขทะเบียนรับ/วันที่รับจากงานธุรการ แล้วตรวจทานและยืนยันผล'}</p>
   ${list.length ? list.map(r => `<div class="inbox-item"><div class="between wrap"><div><b>${esc(r.agency)}</b><div class="sub">หนังสือที่ ${esc(r.docNo)} ลงวันที่ ${fmtLong(r.docDate)}${r.submittedAt ? ` · ส่งเมื่อ ${fmtDT(r.submittedAt)}` : ''} · ${r.form == 1 ? 'แนบใบรายชื่อ' : 'ระบุรายชื่อ'}${r.email ? ' · ' + esc(r.email) : ''}</div></div>
     <div class="row">${resultSummary(r)}<button type="button" class="btn btn-blue sm" data-act="openverify" data-id="${r.id}">🔍 ตรวจทาน/ยืนยันผล</button><button type="button" class="btn btn-outline sm" data-act="retopen" data-id="${r.id}">↩️ ส่งกลับให้แก้ไข</button></div></div>
     <p class="small" style="margin:8px 0 0">${r.persons.map(p => esc(pName(p)) + (p.sid ? ` (${esc(p.sid)})` : '')).join(' · ')}</p>
     ${attChips(r)}
-    ${regInputs(r, 'in')}
-    ${U.returnId === r.id ? `<div class="row" style="margin-top:8px"><input id="ret-reason" placeholder="เหตุผล เช่น ไม่ได้แนบหนังสือขอตรวจสอบ" style="flex:1;min-width:220px"><button type="button" class="btn btn-red sm" data-act="returnreq" data-id="${r.id}">ยืนยันส่งกลับ</button></div>` : ''}</div>`).join('') : '<p class="muted" style="margin:8px 0 0">ไม่มีหนังสือรอลงเลขรับ คำขอที่หน่วยงานส่งผ่านระบบจะถูกรับเข้าอัตโนมัติและแสดงที่นี่</p>'}</div>`;
+    ${routeBox(r, 'in')}
+    ${U.returnId === r.id ? `<div class="row" style="margin-top:8px"><input id="ret-reason" placeholder="เหตุผล เช่น ไม่ได้แนบหนังสือขอตรวจสอบ" style="flex:1;min-width:220px"><button type="button" class="btn btn-red sm" data-act="returnreq" data-id="${r.id}">ยืนยันส่งกลับ</button></div>` : ''}</div>`).join('') : '<p class="muted" style="margin:8px 0 0">ไม่มีหนังสือรอดำเนินการ คำขอที่หน่วยงานส่งผ่านระบบจะถูกรับเข้าอัตโนมัติและแสดงที่นี่</p>'}</div>`;
 }
 
 /* ---------- ส่วนประกอบ ---------- */
@@ -882,7 +939,7 @@ function stepper(r) {
 
 /* ---------- หน้าจอเจ้าหน้าที่ ---------- */
 function vDash() {
-  const R = REQS(), open = R.filter(r => r.status !== 'replied'), inbox = waitReg().length;
+  const R = REQS(), open = R.filter(r => r.status !== 'replied'), inbox = rcvTodo();
   const persons = R.flatMap(r => r.persons), cnt = k => persons.filter(p => p.result === k).length, max = Math.max(1, persons.length);
   const debtors = new Set(S.fees.filter(f => f.amount - f.paid > 0).map(f => f.studentId)).size;
   const over = open.filter(r => ageOf(r).over).length;
@@ -892,6 +949,9 @@ function vDash() {
   <div class="pagehead between wrap"><div><h1>งานตรวจสอบวุฒิการศึกษา</h1><p class="muted">ข้อมูล ณ ${fmtLong(todayISO())} · กำหนดตอบภายใน ${slaDays()} วันนับจากวันที่รับ</p></div>
   <div class="row"><button type="button" class="btn btn-primary" data-act="go" data-v="receive">${ic('inbox')} รับหนังสือ${inbox ? ` <span class="pill">${inbox} ออนไลน์</span>` : ''}</button><button type="button" class="btn btn-outline" data-act="go" data-v="outgoing">${ic('send')} หนังสือส่งออก</button></div></div>
   <div class="ledger">${stat('หนังสือรับทั้งหมด', R.length, 'ฉบับ', 'var(--primary)')}${stat('อยู่ระหว่างดำเนินการ', open.length, 'ฉบับ', 'var(--gold)')}${stat('เกินกำหนดตอบ', over, 'ฉบับ', over ? 'var(--red)' : 'var(--outline)')}${stat('ส่งหนังสือตอบแล้ว', R.length - open.length, 'ฉบับ', 'var(--green)')}${stat('เวลาตอบเฉลี่ย', avg == null ? '–' : avg.toFixed(1), avg == null ? '' : 'วัน', 'var(--blue)')}</div>
+  ${certOn() && isRegistrar() && waitCert().length ? `<div class="notice warn row">📝 หนังสือแจ้งผลรอนายทะเบียนตรวจสอบและรับรอง ${waitCert().length} ฉบับ: ${waitCert().slice(0, 3).map(r => `<button type="button" class="btn btn-outline sm" data-act="letter" data-id="${r.id}">เลขรับ ${esc(r.regNo || '-')} · ${esc(r.agency)}</button>`).join(' ')}</div>` : ''}
+  ${routeOn() && isClerk() && waitClerk().length ? `<div class="notice warn row">📥 หนังสือเข้าออนไลน์รองานธุรการลงทะเบียนรับ ${waitClerk().length} ฉบับ <button type="button" class="btn btn-outline sm" data-act="rtinbox">ลงทะเบียนรับ</button></div>` : ''}
+  ${routeOn() && waitBack().length ? `<div class="notice info row">📬 งานธุรการลงรับแล้ว รอเสนอผู้อำนวยการทราบและรับหนังสือคืน ${waitBack().length} ฉบับ <button type="button" class="btn btn-outline sm" data-act="rtinbox">ดูหนังสือ</button></div>` : ''}
   ${pendAg ? `<div class="notice warn row">${ic('building')} มีหน่วยงานภายนอกลงทะเบียนรออนุมัติ ${pendAg} หน่วยงาน <button type="button" class="btn btn-outline sm" data-act="go" data-v="settings">ตรวจสอบและอนุมัติ</button></div>` : ''}
   <div class="grid g-main">
     <section class="card"><div class="between"><div><h2 style="margin:0">งานที่ต้องทำต่อ</h2><p class="muted small" style="margin:2px 0 0">เรียงตามความเร่งด่วน: เกินกำหนด › คำขอใหม่ › รอตรวจ › รอออกหนังสือ</p></div><button type="button" class="btn btn-outline sm" data-act="go" data-v="track">ดูทั้งหมด</button></div>${workQueue()}</section>
@@ -904,14 +964,14 @@ function vDash() {
 }
 
 function vReceive() {
-  const d = U.draft, inbox = waitReg().length, nReg = REQS().length;
+  const d = U.draft, inbox = rcvTodo(), nReg = REQS().length;
   if (!d.editingId && !d.regno && inRangeOn()) d.regno = nextRegNo();
   const opt = v => ['', 'ม.3', 'ม.6'].map(o => `<option value="${o}" ${v === o ? 'selected' : ''}>${o || '–'}</option>`).join('');
   if (d.editingId) U.rtab = 'form';
   return `<div class="pagehead"><h1>รับหนังสือขอตรวจสอบวุฒิ</h1><p class="muted">ขั้นตอนที่ 1 · ลงทะเบียนรับหนังสือจากหน่วยงาน แล้วระบุรายชื่อผู้ที่ขอให้ตรวจสอบ</p></div>
-  ${tabsBar('rtab', [['form', d.editingId ? '✏️ แก้ไขข้อมูลรับหนังสือ' : '📝 บันทึกรับหนังสือ'], ['inbox', '📨 คำขอออนไลน์ (รอลงเลขรับ)', inbox ? { n: inbox, cls: 'hot' } : null], ['register', '📥 ทะเบียนหนังสือรับ', { n: nReg }]])}
+  ${tabsBar('rtab', [['form', d.editingId ? '✏️ แก้ไขข้อมูลรับหนังสือ' : '📝 บันทึกรับหนังสือ'], ['inbox', routeOn() ? '📨 หนังสือออนไลน์ (ผ่านงานธุรการ)' : '📨 คำขอออนไลน์ (รอลงเลขรับ)', inbox ? { n: inbox, cls: 'hot' } : null], ['register', '📥 ทะเบียนหนังสือรับ', { n: nReg }]])}
   <div class="stack" ${tp('rtab', 'form', 'form')}>
-  ${inbox && !d.editingId ? `<div class="notice warn row" style="margin:0">📨 มีหนังสือจากระบบออนไลน์ (รับอัตโนมัติแล้ว) รอลงเลขทะเบียนรับ ${inbox} รายการ <button type="button" class="btn btn-outline sm" data-act="tab" data-k="rtab" data-v="inbox">ดูคำขอ</button></div>` : ''}
+  ${inbox && !d.editingId ? `<div class="notice warn row" style="margin:0">📨 มีหนังสือจากระบบออนไลน์ (รับอัตโนมัติแล้ว) ${routeOn() ? 'รอดำเนินการขั้นตอนรับผ่านงานธุรการ' : 'รอลงเลขทะเบียนรับ'} ${inbox} รายการ <button type="button" class="btn btn-outline sm" data-act="tab" data-k="rtab" data-v="inbox">ดูคำขอ</button></div>` : ''}
   ${scanCard('staff')}
   <form class="card form ${d.editingId ? 'editing' : ''}" data-form="receive" id="rc-form" novalidate>
     ${d.editingId ? `<div class="notice warn between wrap" style="margin:0"><span>✏️ กำลังแก้ไขข้อมูลรับหนังสือ เลขรับ <b>${esc((getReq(d.editingId) || {}).regNo || '')}</b> · ผลการตรวจสอบของรายที่ไม่เปลี่ยนข้อมูลจะคงไว้</span><button type="button" class="btn btn-outline sm" data-act="canceledit">ยกเลิกการแก้ไข</button></div>` : ''}
@@ -1005,11 +1065,11 @@ function letterNote(p) {
 }
 function verifyPanel(r) {
   const pend = r.persons.filter(unconf).length, inc = r.status === 'replied' ? [] : incompleteOf(r), debt = r.persons.filter(hasDebt);
-  return `<div class="card"><div class="between wrap"><div><span class="eyebrow">เลขรับ ${regLbl(r)} · ${r.form == 1 ? 'แบบที่ 1 แนบบัญชีรายชื่อจากหน่วยงาน' : 'แบบที่ 2 ระบุรายชื่อ'}</span><h2 style="margin:4px 0">${esc(r.agency)}</h2><p class="muted small" style="margin:0">หนังสือที่ ${esc(r.docNo)} ลงวันที่ ${fmtLong(r.docDate)} · รับเมื่อ ${fmtLong(r.recvDate)}${r.file ? ' · ไฟล์แนบ ' + esc(r.file) : ''}${r.source === 'online' ? ' · <span class="badge info">ส่งผ่านระบบออนไลน์</span>' : ''}</p>${attChips(r)}</div>
+  return `<div class="card"><div class="between wrap"><div><span class="eyebrow">เลขรับ ${regLbl(r)} · ${r.form == 1 ? 'แบบที่ 1 แนบบัญชีรายชื่อจากหน่วยงาน' : 'แบบที่ 2 ระบุรายชื่อ'}</span><h2 style="margin:4px 0">${esc(r.agency)}</h2><p class="muted small" style="margin:0">หนังสือที่ ${esc(r.docNo)} ลงวันที่ ${fmtLong(r.docDate)} · รับเมื่อ ${fmtLong(r.recvDate)}${r.file ? ' · ไฟล์แนบ ' + esc(r.file) : ''}${r.source === 'online' ? ' · <span class="badge info">ส่งผ่านระบบออนไลน์</span>' : ''}</p>${attChips(r)}${r.status !== 'replied' || r.endorsed ? endorsedChip(r) : ''}</div>
   <div class="row">${statusBadge(r)}<button type="button" class="btn btn-outline" data-act="stampopen" data-id="${r.id}" title="ประทับตรารับหนังสือ ตรารองผู้อำนวยการ และตราผู้อำนวยการลงบนไฟล์หนังสือเข้า">🔖 ประทับตราหนังสือเข้า</button>${r.status !== 'replied' ? `<button type="button" class="btn btn-outline" data-act="editreq" data-id="${r.id}">✏️ แก้ไขข้อมูลรับหนังสือ</button>${r.persons.length ? `<button type="button" class="btn btn-outline" data-act="automatch" data-id="${r.id}" title="ระบบตรวจเทียบให้อัตโนมัติตั้งแต่รับหนังสือ ใช้ปุ่มนี้เมื่อเพิ่งนำเข้าฐานข้อมูลใหม่">⚡ ตรวจเทียบอีกครั้ง</button>` : ''}${r.persons.some(p => p.confirmed === false && p.result === 'found') ? `<button type="button" class="btn btn-green" data-act="confirmall" data-id="${r.id}">✔ ยืนยันผลที่ตรงกับฐานข้อมูล (${r.persons.filter(p => p.confirmed === false && p.result === 'found').length})</button>` : ''}` : ''}<button type="button" class="btn btn-green" data-act="letter" data-id="${r.id}" ${pend || inc.length || !r.persons.length ? 'disabled' : ''}>📝 หนังสือตอบ</button></div></div>
   ${!r.persons.length && r.status !== 'replied' ? `<p class="notice warn row" style="margin-top:14px">ยังไม่มีรายชื่อผู้ขอตรวจสอบในหนังสือฉบับนี้ <button type="button" class="btn btn-outline sm" data-act="editreq" data-id="${r.id}">✏️ เพิ่มรายชื่อ</button></p>` : ''}
   ${r.replyHow || r.dueText ? `<p class="small" style="margin:10px 0 0">${r.dueText ? `<b>กำหนดส่ง:</b> ${esc(r.dueText)}${dueOf(r) && !findDate(r.dueText) ? ` (ภายใน ${fmtLong(dueOf(r))})` : ''}` : ''}${r.dueText && r.replyHow ? ' · ' : ''}${r.replyHow ? `<b>ช่องทางที่ขอให้ตอบกลับ:</b> ${esc(r.replyHow)}` : ''}</p>` : ''}
-  ${!r.regNo && r.status !== 'replied' ? `<div class="notice warn regbox" style="margin-top:14px"><b>📨 ระบบรับหนังสือฉบับนี้อัตโนมัติจากคำขอออนไลน์</b> — กรอกเลขทะเบียนรับและวันที่รับจากงานธุรการ${regInputs(r, 'vf')}</div>` : ''}
+  ${routeOn() && inRoute(r) ? `<div class="notice info regbox" style="margin-top:14px"><b>📨 ขั้นตอนรับหนังสือผ่านงานธุรการ</b>${routeBox(r, 'vf')}</div>` : !r.regNo && r.status !== 'replied' ? `<div class="notice warn regbox" style="margin-top:14px"><b>📨 ระบบรับหนังสือฉบับนี้อัตโนมัติจากคำขอออนไลน์</b> — กรอกเลขทะเบียนรับและวันที่รับจากงานธุรการ${regInputs(r, 'vf')}</div>` : ''}
   ${pend && r.status !== 'replied' ? `<p class="notice warn" style="margin-top:14px">ระบบตรวจเทียบฐานข้อมูลให้แล้ว เหลือ ${pend} รายที่รอเจ้าหน้าที่ยืนยัน · ตรวจทานแล้วกด "✔ ยืนยัน" · รายที่ไม่พบในฐานข้อมูล (หรือจบก่อนปี ${dbFromYear()}) กด "✍️ ตรวจสอบเอง"</p>` : ''}
   ${inc.length ? `<p class="notice danger" style="margin-top:10px">ข้อมูลยังไม่ครบสำหรับผู้ที่ยืนยันว่าสำเร็จการศึกษาจริง ${inc.length} ราย: ${inc.map(p => `<b>${esc(pName(p))}</b> (ขาด ${missingData(p, r).join(', ')})`).join(' · ')} — กรอกให้ครบก่อนสร้างหนังสือตอบ</p>` : ''}
   ${r.status !== 'replied' && wantsPP1(r) && pp1Missing(r).length ? `<p class="notice warn" style="margin-top:10px">📘 หน่วยงานนี้ต้องการสำเนา ปพ.1 ประกอบหนังสือตอบ ยังไม่มีไฟล์ ${pp1Missing(r).length} ราย: ${pp1Missing(r).map(t => esc(pName(t.p))).join(', ')} — กด "แนบสำเนา ปพ.1" ในตาราง</p>` : ''}
@@ -1035,7 +1095,7 @@ function vOutgoing() {
   <div class="ledger">${stat('รอสร้างหนังสือตอบ', waitLetter, 'ฉบับ', 'var(--yellow)')}${stat('ออกเลขแล้ว รอส่ง', waitSend, 'ฉบับ', 'var(--blue)')}${stat('ส่งแล้ว', sent, 'ฉบับ', 'var(--green)')}</div>
   <p class="notice ${outLeft() <= 5 ? 'warn' : 'info'}" style="margin:0">เลขหนังสือส่งที่ได้รับจัดสรร ${S.settings.docPrefix}${S.settings.outFrom}–${S.settings.outTo} · เลขถัดไป ${Math.max(S.settings.nextOut, S.settings.outFrom)} · เหลือ ${outLeft()} เลข <button type="button" class="btn btn-outline sm" data-act="go" data-v="settings">กำหนดช่วงเลข</button></p>
   <div class="card"><h2>ทะเบียนหนังสือส่ง</h2><div class="tablewrap"><table><thead><tr><th>เลขรับ</th><th>หน่วยงาน</th><th>สรุปผล</th><th>เลขหนังสือส่ง</th><th>วันที่ส่ง</th><th>สถานะ</th><th></th></tr></thead><tbody>
-  ${R.map(r => { const pend = !r.persons.length || r.persons.some(unconf); return `<tr><td><b>${regLbl(r)}</b></td><td>${esc(r.agency)}<div class="sub">อ้างถึง ${esc(r.docNo)}</div></td><td>${resultSummary(r)}</td><td>${r.outNo ? esc(S.settings.docPrefix + r.outNo) : '<span class="muted">—</span>'}</td><td>${r.sentDate ? fmtBE(r.sentDate) : '<span class="muted">—</span>'}</td><td>${statusBadge(r)}</td>
+  ${R.map(r => { const pend = !r.persons.length || r.persons.some(unconf); return `<tr><td><b>${regLbl(r)}</b></td><td>${esc(r.agency)}<div class="sub">อ้างถึง ${esc(r.docNo)}</div></td><td>${resultSummary(r)}</td><td>${r.outNo ? esc(S.settings.docPrefix + r.outNo) : '<span class="muted">—</span>'}</td><td>${r.sentDate ? fmtBE(r.sentDate) : '<span class="muted">—</span>'}</td><td>${statusBadge(r)}${certChip(r)}</td>
   <td class="tdact">${pend || (r.status !== 'replied' && incompleteOf(r).length) ? `<button type="button" class="btn btn-outline sm" data-act="openverify" data-id="${r.id}">${pend ? 'ตรวจให้ครบก่อน' : 'ข้อมูลยังไม่ครบ'}</button>` : `<button type="button" class="btn btn-outline sm" data-act="letter" data-id="${r.id}">📝 ${r.outNo ? 'ดูหนังสือ' : 'สร้างหนังสือ'}</button>`}${r.outNo && r.status !== 'replied' ? ` <button type="button" class="btn btn-green sm" data-act="sent" data-id="${r.id}">บันทึกส่งแล้ว</button>` : ''}</td></tr>`; }).join('')}
   </tbody></table></div></div>`;
 }
@@ -1408,6 +1468,10 @@ function vSettings() {
   ${f('docPrefix', 'รหัสหนังสือออก (นำหน้าเลขหนังสือ)', st.docPrefix, 'ศธ 04xxx.xx/')}
   <div class=""><label for="st-outNoYear">รูปแบบเลขที่หนังสือส่ง (ค่าเริ่มต้น เปลี่ยนรายฉบับได้)</label><select id="st-outNoYear"><option value="0" ${st.outNoYear ? '' : 'selected'}>ไม่ใส่ปี พ.ศ. เช่น ที่ ${esc(st.docPrefix)}121</option><option value="1" ${st.outNoYear ? 'selected' : ''}>ใส่ปี พ.ศ. เช่น ที่ ${esc(st.docPrefix)}121/${beYear()}</option></select></div>
   <div class="span2 range-box"><b>ช่วงเลขรับหนังสือเข้าที่ได้รับจัดสรรจากงานธุรการ (ไม่บังคับ)</b><div class="grid g3"><div><label for="st-inFrom">ตั้งแต่เลขที่</label><input id="st-inFrom" inputmode="numeric" value="${st.inFrom || ''}" placeholder="เช่น 1801"></div><div><label for="st-inTo">ถึงเลขที่</label><input id="st-inTo" inputmode="numeric" value="${st.inTo || ''}" placeholder="เช่น 1900"></div><div><label for="st-inYear">รูปแบบเลขรับ</label><select id="st-inYear"><option value="1" ${st.inYear === false ? '' : 'selected'}>ใส่ปี พ.ศ. เช่น 1801/${beYear()}</option><option value="0" ${st.inYear === false ? 'selected' : ''}>ไม่ใส่ปี เช่น 1801</option></select></div></div><p class="muted small" style="margin:0">${inRangeOn() ? `เหลือ ${inLeft()} เลข · เลขรับถัดไป: <b>${esc(nextRegNo() || 'ใช้ครบแล้ว')}</b> · ระบบกรอกเลขนี้ให้อัตโนมัติเมื่อรับหนังสือ (แก้ได้) และข้ามเลขที่ใช้แล้ว` : 'เว้นว่างได้ · ถ้ากำหนดช่วง ระบบจะกรอกเลขรับถัดไปให้อัตโนมัติเมื่อรับหนังสือ (แก้ได้)'}</p></div>
+  <div class="span2 range-box"><b>ขั้นตอนรับหนังสือออนไลน์ผ่านงานธุรการ</b>
+    <label class="chk"><input type="checkbox" data-ch="certset" data-f="routeAdmin" ${routeOn() ? 'checked' : ''}> หนังสือออนไลน์: งานวัดผลส่งให้ธุรการลงเลขรับในระบบ → ธุรการส่งกลับ (พิมพ์หนังสือพร้อมตรารับเสนอตามปกติ) → งานวัดผลรับคืนเมื่อผู้อำนวยการทราบ แล้วจึงตรวจสอบ</label>
+    <div><label for="st-clerkemail">อีเมลบัญชีเจ้าหน้าที่ธุรการ (ใช้เข้าสู่ระบบและรับแจ้งเตือน)</label><input id="st-clerkemail" type="email" data-ch="certset" data-f="clerkEmail" value="${esc(S.settings.clerkEmail || '')}" placeholder="saraban@school.ac.th"></div>
+    <p class="muted small" style="margin:0">บัญชีธุรการต้องเป็นบัญชีเจ้าหน้าที่ (สมัครแล้วกด "ตั้งเป็นเจ้าหน้าที่") · เฉพาะบัญชีนี้เห็นช่องลงเลขรับ และได้รับอีเมลแจ้งเตือน (เมื่อตั้งค่าบริการส่งอีเมลแล้ว) · เว้นว่าง = เจ้าหน้าที่ทุกคนลงรับได้</p></div>
   <div class="span2 range-box"><b>ช่วงเลขหนังสือส่งที่ได้รับจัดสรรจากงานธุรการ</b><div class="grid g3"><div><label for="st-outFrom">ตั้งแต่เลขที่</label><input id="st-outFrom" inputmode="numeric" value="${st.outFrom}"></div><div><label for="st-outTo">ถึงเลขที่</label><input id="st-outTo" inputmode="numeric" value="${st.outTo}"></div><div><label for="st-nextOut">เลขถัดไปที่จะใช้</label><input id="st-nextOut" inputmode="numeric" value="${Math.max(st.nextOut, st.outFrom)}"></div></div><p class="muted small" style="margin:0">เหลือ ${outLeft()} เลข · เลขถัดไป: ที่ ${esc(st.docPrefix)}${Math.max(st.nextOut, st.outFrom)}${st.outNoYear ? '/' + beYear() : ''}</p></div>
   <div><label for="st-slaDays">กำหนดตอบหนังสือภายใน (วัน)</label><input id="st-slaDays" type="number" min="1" max="60" value="${slaDays()}"><p class="muted small" style="margin:6px 0 0">ใช้แจ้งเตือนหนังสือที่ใกล้หรือเกินกำหนด</p></div>
   <div><label for="st-dbFromYear">ฐานข้อมูลผู้สำเร็จการศึกษามีตั้งแต่ปีที่จบ (พ.ศ.)</label><input id="st-dbFromYear" inputmode="numeric" value="${dbFromYear()}"><p class="muted small" style="margin:6px 0 0">ผู้ที่จบก่อนปีนี้และไม่พบในฐานข้อมูล ระบบจะให้เจ้าหน้าที่ตรวจสอบเอง</p></div>
@@ -1672,10 +1736,12 @@ const SEAL_DEFAULT = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAXkAAAGQCAMA
 const sealSrc = () => S.settings.sealImg || SEAL_DEFAULT;
 const sealOn = r => r.seal === true && S.settings.sealOff !== true;
 function coSignHTML(r, where) {
-  const sg = reqSign(r), seal = where === 'in-encl' && sealOn(r);
+  const sg = reqSign(r), x = apprOf(r), okCert = !certOn() || x.certified || r.status === 'replied', okCheck = !certOn() || x.checked || r.status === 'replied';
+  const seal = where === 'in-encl' && sealOn(r) && okCert;
   const ks = coKeys(r).slice(); if (seal && !ks.includes('registrar')) ks.push('registrar');
+  const sigFor = k => (k === 'registrar' && !okCert) || (k === 'staff' && !okCheck) ? '' : sigImg(k, sg);
   if (!ks.length) return '';
-  return `<div class="co-signs ${where}" style="grid-template-columns:repeat(${ks.length},minmax(0,1fr))">${ks.map(k => { const s = signOf(k); return `<div class="co-sign">${seal && k === 'registrar' ? `<img class="seal-img" src="${sealSrc()}" alt="ตราโรงเรียน">` : ''}<p class="co-line"><span>ลงชื่อ</span><span class="co-dots">${sigImg(k, sg)}</span><span>${SIGN_ROLES[k].cap}</span></p><p class="co-name">(${esc(s.name || '................................')})</p><p>${esc(s.position || SIGN_ROLES[k].pos)}</p></div>`; }).join('')}</div>`;
+  return `<div class="co-signs ${where}" style="grid-template-columns:repeat(${ks.length},minmax(0,1fr))">${ks.map(k => { const s = signOf(k); return `<div class="co-sign">${seal && k === 'registrar' ? `<img class="seal-img" src="${sealSrc()}" alt="ตราโรงเรียน">` : ''}<p class="co-line"><span>ลงชื่อ</span><span class="co-dots">${sigFor(k)}</span><span>${SIGN_ROLES[k].cap}</span></p><p class="co-name">(${esc(s.name || '................................')})</p><p>${esc(s.position || SIGN_ROLES[k].pos)}</p></div>`; }).join('')}</div>`;
 }
 function signEditor(r) {
   const sg = reqSign(r), lock = r.status === 'replied', hasEncl = listIndex(r) >= 0;
@@ -1737,6 +1803,10 @@ function signSettings() {
   signers(); const d = S.settings.signDefaults;
   return `<div class="card"><h2>✍️ ผู้ลงนามและลายเซ็น</h2><p class="muted small" style="margin-top:-6px">ใส่ชื่อ ตำแหน่ง และภาพลายเซ็นของผู้ลงนามแต่ละตำแหน่ง อัปโหลดรูปลายเซ็นบนกระดาษขาว (ระบบลบพื้นขาวให้) หรือวาดบนจอ แล้วเลือกผู้ลงนามได้ในหน้าหนังสือแต่ละฉบับ</p>
   <div class="sign-grid">${['director', 'deputy', 'registrar', 'measure', 'staff'].map(signRoleCard).join('')}</div>
+  <div class="range-box" style="margin-top:14px"><b>ขั้นตอนรับรองก่อนส่งหนังสือตอบ</b>
+    <label class="chk"><input type="checkbox" data-ch="certset" data-f="requireCert" ${certOn() ? 'checked' : ''}> ต้องให้เจ้าหน้าที่ตรวจข้อมูล แล้วนายทะเบียนรับรอง ก่อนลงนามและส่งหนังสือตอบ</label>
+    <div><label for="st-regemail">อีเมลบัญชีนายทะเบียน (ใช้เข้าสู่ระบบและรับแจ้งเตือน)</label><input id="st-regemail" type="email" data-ch="certset" data-f="registrarEmail" value="${esc(S.settings.registrarEmail || '')}" placeholder="registrar@school.ac.th"></div>
+    <p class="muted small" style="margin:0">เฉพาะบัญชีที่ใช้อีเมลนี้กด "ตรวจสอบและรับรอง" ได้ · ระบบแจ้งเตือนนายทะเบียนทางอีเมล (เมื่อตั้งค่าบริการส่งอีเมลแล้ว) และขึ้นแจ้งเตือนในหน้าหลักเมื่อนายทะเบียนเข้าสู่ระบบ</p></div>
   <h3 style="margin:16px 0 8px">ค่าเริ่มต้นสำหรับหนังสือฉบับใหม่</h3>
   <div class="sign-row"><span class="sign-lab">ลงนามหนังสือ</span>
     ${Object.entries(MAIN_MODES).map(([k, m]) => `<label class="chk"><input type="radio" name="sd-main" value="${k}" data-ch="signdef" data-f="main" ${(MAIN_MODES[d.main] ? d.main : 'director') === k ? 'checked' : ''}> ${m.label}</label>`).join('')}</div>
@@ -1778,6 +1848,7 @@ function renderModal() {
   m.innerHTML = `<div class="modal-bar"><div><b>หนังสือแจ้งผลการตรวจสอบวุฒิ</b> <span class="muted small">· เลขรับ ${regLbl(r)} · ${esc(r.agency)} · ${statusBadge(r)}</span></div>
   <div class="row">${!r.outNo ? `<button type="button" class="btn btn-yellow sm" data-act="issue" data-id="${r.id}">ออกเลขหนังสือส่ง</button>` : ''}<button type="button" class="btn btn-primary sm" data-act="pdf">💾 ดาวน์โหลด PDF</button>${canPrint ? `<button type="button" class="btn btn-outline sm" data-act="print">🖨️ พิมพ์</button>` : ''}<button type="button" class="btn btn-dark sm" data-act="closemodal">ปิด</button></div></div>
   ${modeBar(r)}
+  ${apprBar(r)}
   <div class="lw">
     <aside class="lw-side" aria-label="ตั้งค่าหนังสือตอบ">
       ${lwSec('detail', 1, 'รายละเอียดหนังสือ', sumDetail, signEditor(r), true)}
@@ -2149,6 +2220,7 @@ function sendProblems(r, method, info = {}) {
   const miss = [!String(r.agency || '').trim() && 'ชื่อหน่วยงาน', !String(r.docNo || '').trim() && 'เลขที่หนังสือ', !r.docDate && 'ลงวันที่'].filter(Boolean);
   if (miss.length) P.push('ข้อมูลหนังสือของหน่วยงานไม่ครบ: ' + miss.join(', '));
   if (!(useSigned(r) || sysSigned(r))) P.push(signMode(r) === 'esign' ? 'เลือกฉบับลงนามอิเล็กทรอนิกส์แล้ว แต่ยังไม่มีภาพลายเซ็นของผู้ลงนาม (เพิ่มที่ ตั้งค่า › ผู้ลงนามและลายเซ็น) หรือแนบหนังสือตัวจริงที่ลงนามแล้ว (หัวข้อ 3)' : 'ยังไม่มีลายเซ็น: ฉบับร่างเพื่อเสนอลงนาม ต้องแนบหนังสือตัวจริงที่ผู้ลงนามลงนามแล้ว (หัวข้อ 3) หรือกดปุ่ม "ฉบับลงนามอิเล็กทรอนิกส์" ด้านบน');
+  if (certOn() && !apprOf(r).certified) P.push(apprOf(r).checked ? 'รอนายทะเบียนตรวจสอบและรับรอง (แถบขั้นตอนด้านบน)' : 'ยังไม่ได้ตรวจข้อมูลและส่งให้นายทะเบียนรับรอง (แถบขั้นตอนด้านบน)');
   if (method === 'email' && !/^\S+@\S+\.\S+$/.test(String(info.to || ''))) P.push('อีเมลผู้รับไม่ถูกต้อง');
   if (method === 'post' && !String(r.aaddr || '').trim()) P.push('ยังไม่มีที่อยู่หน่วยงานสำหรับส่งไปรษณีย์');
   return P;
@@ -2166,11 +2238,122 @@ function readyBox(r) {
     : '<p class="notice ok small" style="margin:0 0 8px">✔ พร้อมส่ง: มีลายเซ็น และข้อมูลครบถ้วนแล้ว</p>');
 }
 /* ดึงหนังสือตอบที่ส่งแล้วกลับมาแก้ไข: ใช้เลขที่หนังสือเดิม หน่วยงานเห็นสถานะว่าโรงเรียนดึงกลับไปแก้ไข */
+/* ---------- ขั้นตอนรับหนังสือออนไลน์ผ่านงานธุรการ: ① เจ้าหน้าที่ส่งให้ธุรการในระบบ (หรือพิมพ์) → ② ธุรการลงเลขรับ วันที่ เวลา ส่งกลับ (พิมพ์หนังสือพร้อมตรารับเสนอตามปกติ) → ③ เจ้าหน้าที่รับคืนเมื่อ ผอ. ทราบ แนบฉบับเกษียณภายหลังได้ ---------- */
+const routeOn = () => S.settings.routeAdmin !== false;
+const clerkEmail = () => String(S.settings.clerkEmail || '').trim().toLowerCase();
+/* ธุรการ = บัญชีที่อีเมลตรงกับที่ตั้งไว้ (โหมดทดลองในเบราว์เซอร์ หรือยังไม่ตั้งอีเมล: ทุกคนลงรับได้) */
+const isClerk = () => !CLOUD || !clerkEmail() || meEmail() === clerkEmail();
+const whoAmI = k => (CLOUD && U.me ? U.me.email : k);
+/* หนังสือที่ยังอยู่ระหว่างเดินผ่านธุรการ: ยังไม่มีเลขรับ หรือเริ่มขั้นตอนแล้วแต่ยังไม่รับคืน (หนังสือเดิมที่มีเลขรับแล้วไม่เกี่ยว) */
+const inRoute = r => routeOn() && r.status !== 'replied' && registered(r) && (r.route ? !r.route.ackAt : !r.regNo);
+function routeStage(r) { const t = r.route || {}; return t.ackAt ? 'done' : r.regNo ? 'back' : t.sentAt ? 'clerk' : 'new'; }
+const rtList = () => REQS().filter(inRoute).sort((a, b) => (a.submittedAt || 0) - (b.submittedAt || 0));
+const inboxList = () => (routeOn() ? rtList() : waitReg());
+const waitClerk = () => rtList().filter(r => routeStage(r) === 'clerk');
+const waitBack = () => rtList().filter(r => routeStage(r) === 'back');
+const rcvTodo = () => (routeOn() ? rtList().filter(r => routeStage(r) !== 'clerk' || isClerk()).length : waitReg().length);
+async function routeSend(r, again) {
+  r.route = Object.assign(r.route || {}, { sentAt: Date.now(), sentBy: whoAmI('เจ้าหน้าที่งานวัดผล'), sentEmail: meEmail() });
+  if (!again) addTL(r, 'เจ้าหน้าที่งานวัดและประเมินผลส่งหนังสือให้งานธุรการลงทะเบียนรับ (ในระบบ)');
+  save(); render();
+  const sent = await notifyMail(clerkEmail(), `[รอลงรับ] หนังสือขอตรวจสอบวุฒิการศึกษา จาก ${r.agency}`,
+    `เรียน เจ้าหน้าที่ธุรการ\n\nมีหนังสือขอตรวจสอบวุฒิการศึกษาเข้าทางระบบออนไลน์ รอลงทะเบียนรับ\nหน่วยงาน: ${r.agency}\nหนังสือที่: ${r.docNo || '-'} ลงวันที่ ${r.docDate ? fmtLong(r.docDate) : '-'}\nจำนวน: ${r.persons.length} ราย\n\nโปรดเข้าสู่ระบบเพื่อลงเลขรับ วันที่ เวลา แล้วส่งกลับงานวัดและประเมินผล และพิมพ์หนังสือพร้อมตรารับเสนอรองผู้อำนวยการและผู้อำนวยการตามปกติ: ${sysLink()}\n\n${S.settings.school}`);
+  toast(`${again ? 'แจ้งเตือนธุรการอีกครั้งแล้ว' : 'ส่งให้งานธุรการลงรับแล้ว'}${sent ? ' · ส่งอีเมลแจ้งเตือนแล้ว' : clerkEmail() ? '' : ' · (ยังไม่ได้ตั้งอีเมลธุรการ จึงแจ้งเตือนในระบบอย่างเดียว)'}`);
+}
+function routeAck(r) {
+  if (!r.regNo) return toast('ธุรการยังไม่ได้ลงเลขรับ', 'err');
+  r.route = Object.assign(r.route || {}, { ackAt: Date.now(), ackBy: whoAmI('เจ้าหน้าที่งานวัดผล') });
+  addTL(r, 'งานวัดและประเมินผลรับหนังสือคืนจากงานธุรการ (รองผู้อำนวยการและผู้อำนวยการทราบแล้ว) ดำเนินการตรวจสอบ');
+  save(); render(); toast(`รับหนังสือเลขรับ ${r.regNo} คืนแล้ว · ดำเนินการตรวจสอบต่อได้${r.endorsed ? '' : ' (แนบฉบับเกษียณภายหลังได้)'}`);
+}
+function endorsedChip(r) {
+  const a = r.endorsed;
+  return `<div class="att-list end-row">${a ? `<span class="att"><span>📑 หนังสือฉบับเกษียณ: ${esc(a.name)}</span><button type="button" class="btn btn-outline sm" data-act="enddl" data-id="${r.id}">ดาวน์โหลด</button></span>` : ''}<label class="btn btn-outline sm file-btn">📎 ${a ? 'เปลี่ยนไฟล์ฉบับเกษียณ' : 'แนบหนังสือฉบับเกษียณ (ผอ. ลงนามแล้ว · แนบภายหลังได้)'}<input type="file" class="vh" accept=".pdf,image/*" data-ch="endfile" data-id="${r.id}"></label></div>`;
+}
+function routeBox(r, k) {
+  if (!routeOn()) return regInputs(r, k);
+  const st = routeStage(r), t = r.route || {}, T = v => (v ? fmtDT(v) : ''), self = U.rtSelf === r.id, clerkNow = st === 'clerk' && isClerk();
+  const step = (n, title, done, cur, body) => `<div class="ap-step ${done ? 'done' : ''} ${cur ? 'cur' : ''}"><span class="ap-n">${done ? '✓' : n}</span><div><b>${title}</b><div class="ap-sub">${body}</div></div></div>`;
+  const s1 = st === 'new' ? 'ส่งในระบบให้ธุรการลงรับ หรือพิมพ์หนังสือให้ธุรการ' : t.sentAt ? `ส่งแล้ว ${T(t.sentAt)}${t.sentBy ? ' · ' + esc(t.sentBy) : ''}` : 'เจ้าหน้าที่ลงเลขรับตามที่ธุรการแจ้ง';
+  const s2 = r.regNo ? `เลขรับ <b>${esc(r.regNo)}</b> · ${fmtShortDate(r.recvDate)}${r.recvTime ? ' เวลา ' + esc(r.recvTime) + ' น.' : ''}${t.regBy ? ' · ' + esc(t.regBy) : ''}`
+    : st === 'clerk' ? `รอธุรการลงเลขรับ${clerkEmail() ? ' · แจ้งเตือนไปที่ ' + esc(clerkEmail()) : ''}` : 'กรอกเลขรับ วันที่ เวลา ส่งกลับงานวัดผล และพิมพ์หนังสือพร้อมตรารับเสนอตามปกติ';
+  const s3 = st === 'back' ? 'เสนอรองผู้อำนวยการและผู้อำนวยการ เมื่อทราบแล้วกดรับหนังสือคืน แล้วตรวจสอบตามขั้นตอนเดิม' : 'รับหนังสือคืนเมื่อผู้อำนวยการทราบ แล้วตรวจสอบ';
+  let act = '';
+  if (st === 'new') act = `<button type="button" class="btn btn-primary sm" data-act="rtsend" data-id="${r.id}">📤 ส่งให้ธุรการลงรับ (ในระบบ)</button><button type="button" class="btn btn-outline sm" data-act="stampopen" data-id="${r.id}" title="เปิดหนังสือเข้าพร้อมตรารับ (ช่องว่าง) เพื่อพิมพ์ให้ธุรการ">🖨️ พิมพ์หนังสือให้ธุรการ</button>`;
+  else if (st === 'clerk') act = clerkNow ? `<button type="button" class="btn btn-outline sm" data-act="stampopen" data-id="${r.id}">🔖 เปิดหนังสือ/ตรารับ</button>` : `<span class="muted small">รอธุรการเข้าสู่ระบบเพื่อลงรับ</span><button type="button" class="btn btn-outline sm" data-act="rtsend" data-id="${r.id}" data-again="1">🔔 แจ้งเตือนธุรการอีกครั้ง</button>`;
+  else if (st === 'back') act = `<button type="button" class="btn btn-outline sm" data-act="stampopen" data-id="${r.id}" title="พิมพ์หนังสือเข้าพร้อมตรารับ ตรารองผู้อำนวยการ และตราผู้อำนวยการ เพื่อเสนอลงนาม">🔖 ประทับตรา/พิมพ์เสนอลงนาม</button><button type="button" class="btn btn-green sm" data-act="rtack" data-id="${r.id}">✔ รับหนังสือคืน · ผอ. ทราบแล้ว</button>`;
+  if (st !== 'back' && !clerkNow) act += `<button type="button" class="linkbtn" data-act="rtself" data-id="${r.id}">${self ? 'ยกเลิก' : 'ลงเลขรับเอง (ธุรการแจ้งเลขแล้ว)'}</button>`;
+  const form = clerkNow ? regInputs(r, k, '💾 ลงรับ · ส่งกลับงานวัดผล', true) : st !== 'back' && self ? regInputs(r, k, 'บันทึกเลขรับ', true) : '';
+  const warn = CLOUD && !clerkEmail() && st !== 'back' ? `<p class="notice warn small" style="margin:0">⚠️ ยังไม่ได้ตั้งอีเมลบัญชีธุรการ ทุกบัญชีเจ้าหน้าที่จึงลงรับได้ และไม่มีอีเมลแจ้งเตือน · ตั้งได้ที่ ตั้งค่า › ข้อมูลทั่วไป</p>` : '';
+  return `<div class="ap-bar rt-bar">${warn}<div class="ap-steps">${step(1, 'งานวัดผลส่งให้ธุรการ', st !== 'new', st === 'new', s1)}${step(2, 'ธุรการลงทะเบียนรับ', !!r.regNo, st === 'clerk', s2)}${step(3, 'รับหนังสือคืน (ผอ. ทราบ)', false, st === 'back', s3)}</div>${form}${act ? `<div class="row ap-act">${act}</div>` : ''}${st === 'back' && k === 'in' ? endorsedChip(r) : ''}</div>`;
+}
+/* ---------- ขั้นตอนรับรองก่อนส่ง: ① เจ้าหน้าที่วัดผลตรวจข้อมูลครบถ้วน → ② นายทะเบียนตรวจสอบและรับรอง → ③ เจ้าหน้าที่ลงนามแทน ผอ. และส่ง ---------- */
+const certOn = () => S.settings.requireCert !== false;
+const regEmail = () => String(S.settings.registrarEmail || '').trim().toLowerCase();
+const meEmail = () => (CLOUD && U.me ? String(U.me.email || '').toLowerCase() : '');
+/* นายทะเบียน = บัญชีที่อีเมลตรงกับที่ตั้งไว้ (โหมดทดลองในเบราว์เซอร์: ทุกคนกดรับรองได้) */
+const isRegistrar = () => !CLOUD || !regEmail() || meEmail() === regEmail();
+/* ลายนิ้วมือข้อมูลผล: แก้ผลหลังตรวจ/รับรอง = ต้องตรวจและรับรองใหม่ */
+const resultPrint = r => JSON.stringify([r.persons.map(p => [p.id, p.result, p.matchedId || '', p.note || '', p.confirmed !== false, hasDebt(p)]), showGpa(r), (Array.isArray(r.enclosures) ? enclList(r) : []).map(e => e.name)]);
+function apprOf(r) { const a = r.approval || {}; const fresh = a.print && a.print === resultPrint(r); return { a, checked: !!(a.checkedAt && fresh), certified: !!(a.certAt && fresh), stale: !!(a.checkedAt && !fresh) }; }
+function certChip(r) {
+  if (!certOn() || r.status === 'replied' || !r.persons.length) return '';
+  const x = apprOf(r);
+  return x.certified ? ' <span class="badge ok">✔ นายทะเบียนรับรองแล้ว</span>' : x.checked ? ' <span class="badge warn">รอนายทะเบียนรับรอง</span>' : x.stale ? ' <span class="badge danger">แก้ไขหลังตรวจ · ต้องตรวจใหม่</span>' : x.a.returnedAt ? ' <span class="badge danger">นายทะเบียนส่งกลับแก้ไข</span>' : '';
+}
+const waitCert = () => REQS().filter(r => r.status !== 'replied' && apprOf(r).checked && !apprOf(r).certified);
+async function notifyMail(to, subject, text) {
+  if (!to || !(CLOUD || S.settings.gasUrl)) return false;
+  try { await sendViaGAS({ to, cc: '', subject, text, replyTo: S.settings.email || '', fromName: S.settings.school, pdf: null, filename: '' }); return true; }
+  catch (e) { toast('ส่งอีเมลแจ้งเตือนไม่สำเร็จ: ' + ((e && e.message) || e), 'err'); return false; }
+}
+const sysLink = () => location.origin + location.pathname + '#staff';
+async function apprCheck(r) {
+  if (inRoute(r)) return toast('ยังไม่ครบขั้นตอนรับหนังสือผ่านงานธุรการ · กด "รับหนังสือคืน · ผอ. ทราบแล้ว" ก่อนส่งให้นายทะเบียนรับรอง', 'err');
+  const P = r.persons.filter(unconf).length, inc = incompleteOf(r).length;
+  if (!r.persons.length || P || inc) return toast(`ยังส่งให้นายทะเบียนรับรองไม่ได้: ${!r.persons.length ? 'ยังไม่มีรายชื่อ' : P ? `ยืนยันผลไม่ครบ ${P} ราย` : `ข้อมูลไม่ครบ ${inc} ราย`}`, 'err');
+  const by = CLOUD && U.me ? U.me.email : ((signOf('staff').name) || 'เจ้าหน้าที่');
+  r.approval = { checkedAt: Date.now(), checkedBy: by, checkedEmail: meEmail(), print: resultPrint(r) };
+  addTL(r, `เจ้าหน้าที่งานวัดและประเมินผลตรวจข้อมูลถูกต้องสมบูรณ์แล้ว ส่งให้นายทะเบียนรับรอง (${by})`);
+  save(); renderModal(); render();
+  const sent = await notifyMail(regEmail(), `[รอรับรอง] หนังสือแจ้งผลตรวจสอบวุฒิ เลขรับ ${r.regNo || '-'} · ${r.agency}`,
+    `เรียน นายทะเบียน\n\nเจ้าหน้าที่งานวัดและประเมินผลการศึกษาตรวจข้อมูลหนังสือแจ้งผลการตรวจสอบวุฒิการศึกษาถูกต้องสมบูรณ์แล้ว\nหน่วยงาน: ${r.agency}\nหนังสือที่: ${r.docNo || '-'}\nเลขรับ: ${r.regNo || '-'}\nจำนวน: ${r.persons.length} ราย\n\nโปรดเข้าสู่ระบบเพื่อตรวจสอบและรับรอง: ${sysLink()}\n\n${S.settings.school}`);
+  toast(`ส่งให้นายทะเบียนรับรองแล้ว${sent ? ' · แจ้งเตือนทางอีเมลแล้ว' : regEmail() ? '' : ' · (ยังไม่ได้ตั้งอีเมลนายทะเบียน จึงแจ้งเตือนในระบบอย่างเดียว)'}`);
+}
+async function apprCert(r) {
+  if (!isRegistrar()) return toast('เฉพาะนายทะเบียนเท่านั้นที่รับรองได้', 'err');
+  const x = apprOf(r); if (!x.checked) return toast('เจ้าหน้าที่ยังไม่ได้ส่งให้รับรอง หรือข้อมูลถูกแก้ไขหลังตรวจ', 'err');
+  const by = CLOUD && U.me ? U.me.email : ((signOf('registrar').name) || 'นายทะเบียน');
+  Object.assign(r.approval, { certAt: Date.now(), certBy: by });
+  addTL(r, `นายทะเบียนตรวจสอบและรับรองความถูกต้องแล้ว (${by}) · พร้อมลงนามและส่งหนังสือตอบ`);
+  save(); renderModal(); render();
+  const sent = await notifyMail(r.approval.checkedEmail, `[รับรองแล้ว] หนังสือแจ้งผลตรวจสอบวุฒิ เลขรับ ${r.regNo || '-'} · ${r.agency}`,
+    `นายทะเบียนตรวจสอบและรับรองความถูกต้องแล้ว\nหน่วยงาน: ${r.agency}\nเลขรับ: ${r.regNo || '-'}\n\nลงนามแทนผู้อำนวยการและส่งหนังสือตอบได้ที่: ${sysLink()}`);
+  toast('รับรองแล้ว · แจ้งเจ้าหน้าที่ให้ลงนามและส่งหนังสือตอบ' + (sent ? ' (อีเมล)' : ''));
+}
+function apprReturn(r, note) {
+  r.approval = { returnedAt: Date.now(), returnNote: note || '' };
+  addTL(r, `นายทะเบียนส่งกลับให้แก้ไข${note ? ': ' + note : ''}`);
+  save(); renderModal(); render(); toast('ส่งกลับให้เจ้าหน้าที่แก้ไขแล้ว');
+}
+function apprBar(r) {
+  if (!certOn() || r.status === 'replied') return '';
+  const x = apprOf(r), a = x.a, t = v => v ? fmtDT(v) : '';
+  const step = (n, title, done, cur, body) => `<div class="ap-step ${done ? 'done' : ''} ${cur ? 'cur' : ''}"><span class="ap-n">${done ? '✓' : n}</span><div><b>${title}</b><div class="ap-sub">${body}</div></div></div>`;
+  const s1 = x.checked ? `ตรวจแล้ว ${t(a.checkedAt)} · ${esc(a.checkedBy || '')}` : x.stale ? '<span class="ap-warn">ข้อมูลถูกแก้ไขหลังตรวจ ต้องตรวจและส่งรับรองใหม่</span>' : a.returnedAt ? `<span class="ap-warn">นายทะเบียนส่งกลับให้แก้ไข${a.returnNote ? ': ' + esc(a.returnNote) : ''}</span>` : 'ตรวจผลทุกรายและข้อมูลในหนังสือให้ครบถ้วน';
+  const s2 = x.certified ? `รับรองแล้ว ${t(a.certAt)} · ${esc(a.certBy || '')}` : x.checked ? `รอนายทะเบียนรับรอง${regEmail() ? ` · แจ้งเตือนไปที่ ${esc(regEmail())}` : ''}` : 'นายทะเบียนตรวจสอบและรับรองความถูกต้อง';
+  const s3 = x.certified ? 'เลือกฉบับลงนามอิเล็กทรอนิกส์ (ลงนามแทนผู้อำนวยการ) แล้วส่งหนังสือในหัวข้อ 4' : 'ลงนามแทนผู้อำนวยการและส่งหนังสือตอบ';
+  const act = !x.checked ? `<button type="button" class="btn btn-primary sm" data-act="apcheck">✔ ตรวจข้อมูลถูกต้องสมบูรณ์แล้ว · ส่งให้นายทะเบียนรับรอง</button>`
+    : !x.certified ? (isRegistrar() ? `<button type="button" class="btn btn-green sm" data-act="apcert">✔ ตรวจสอบและรับรองความถูกต้อง (นายทะเบียน)</button><button type="button" class="btn btn-outline sm" data-act="apreturn">↩️ ส่งกลับให้แก้ไข</button>` : '<span class="muted small">รอนายทะเบียนเข้าสู่ระบบเพื่อรับรอง</span>')
+    : '';
+  const warn = CLOUD && !regEmail() ? `<p class="notice warn small" style="margin:0">⚠️ ยังไม่ได้ตั้งอีเมลบัญชีนายทะเบียน ทุกบัญชีเจ้าหน้าที่จึงกดรับรองได้ และไม่มีอีเมลแจ้งเตือน · ตั้งได้ที่ ตั้งค่า › ผู้ลงนามและลายเซ็น</p>` : '';
+  return `<div class="ap-bar">${warn}<div class="ap-steps">${step(1, 'เจ้าหน้าที่งานวัดและประเมินผลตรวจข้อมูล', x.checked, !x.checked, s1)}${step(2, 'นายทะเบียนตรวจสอบและรับรอง', x.certified, x.checked && !x.certified, s2)}${step(3, 'ลงนามแทนผู้อำนวยการ และส่ง', false, x.certified, s3)}</div>${act ? `<div class="row ap-act">${act}</div>` : ''}</div>`;
+}
 function recallReply(r) {
   if (r.delivery) r.deliveries = (r.deliveries || []).concat([r.delivery]);
   r.delivery = null; r.sentDate = ''; r.recalledAt = Date.now(); delete r.publicResults;
   if (CLOUD && r.replyPdf) sb.storage.from('replies').remove([`${r.id}.pdf`]).catch(() => {});
-  r.replyPdf = false; r.replyName = '';
+  r.replyPdf = false; r.replyName = ''; delete r.approval;
   r.status = 'done'; addTL(r, 'โรงเรียนดึงหนังสือแจ้งผลกลับไปแก้ไข และจะส่งฉบับแก้ไขให้อีกครั้ง', true);
   refreshStatus(r); save();
 }
@@ -2179,7 +2362,7 @@ function confirmBox({ title, html, ok = 'ยืนยัน', cancel = 'ยก�
   return new Promise(res => {
     const el = document.createElement('div'); el.className = 'cfm-wrap'; el.setAttribute('role', 'dialog'); el.setAttribute('aria-modal', 'true');
     el.innerHTML = `<div class="cfm"><h3>${title}</h3><div class="cfm-body">${html}</div><div class="row end"><button type="button" class="btn btn-outline" data-x="0">${cancel}</button><button type="button" class="btn ${danger ? 'btn-yellow' : 'btn-primary'}" data-x="1">${ok}</button></div></div>`;
-    const done = v => { document.removeEventListener('keydown', key); el.remove(); res(v); };
+    const done = v => { confirmBox.vals = [...el.querySelectorAll('input,textarea')].map(i => i.value); document.removeEventListener('keydown', key); el.remove(); res(v); };
     const key = e => { if (e.key === 'Escape') done(false); };
     el.addEventListener('click', e => { const b = e.target.closest('[data-x]'); if (b) done(b.dataset.x === '1'); else if (e.target === el) done(false); });
     document.addEventListener('keydown', key); document.body.appendChild(el); el.querySelector('[data-x="1"]').focus();
@@ -3012,12 +3195,12 @@ function render() {
   $('#modeSeg').innerHTML = topBar();
   const nav = $('#nav'), acc = curAgency();
   let items = '';
-  if (U.mode === 'staff' && U.staffAuth) { autoReceive(); const n = waitReg().length; items = VIEWS.map(([k, t, step]) => `${NAV_SEP_BEFORE.includes(k) ? '<span class="nav-sep" aria-hidden="true"></span>' : ''}<button type="button" class="${U.view === k || NAV_GROUP[U.view] === k ? 'on' : ''}" data-act="go" data-v="${k}" title="${step ? 'ขั้นตอนที่ ' + step : ''}">${t}${k === 'receive' && n ? ` <span class="badge danger">${n}</span>` : ''}</button>`).join(''); }
+  if (U.mode === 'staff' && U.staffAuth) { autoReceive(); const n = rcvTodo(); items = VIEWS.map(([k, t, step]) => `${NAV_SEP_BEFORE.includes(k) ? '<span class="nav-sep" aria-hidden="true"></span>' : ''}<button type="button" class="${U.view === k || NAV_GROUP[U.view] === k ? 'on' : ''}" data-act="go" data-v="${k}" title="${step ? 'ขั้นตอนที่ ' + step : ''}">${t}${k === 'receive' && n ? ` <span class="badge danger">${n}</span>` : ''}${k === 'outgoing' && certOn() && isRegistrar() && waitCert().length ? ` <span class="badge warn" title="รอนายทะเบียนรับรอง">${waitCert().length}</span>` : ''}</button>`).join(''); }
   else if (U.mode === 'agency' && acc) { const un = agencyEvents(acc).filter(x => x.e.t > (acc.lastSeen || 0)).length; items = AVIEWS.map(([k, t]) => `<button type="button" class="${U.aView === k || (k === 'status' && U.aView === 'detail') ? 'on' : ''}" data-act="ago" data-v="${k}">${t}${k === 'home' && un ? ` <span class="badge danger">${un}</span>` : ''}</button>`).join(''); }
   nav.hidden = !items; nav.innerHTML = items;
   const nb = $('.navbar'); if (nb) nb.hidden = !items;
   renderSearch();
-  $('#app').innerHTML = U.mode === 'home' ? vHome() : U.mode === 'staff' ? (U.staffAuth ? VIEW_FN[U.view]() : vStaffLogin()) : (acc ? vAgency() : vAgencyAuth());
+  $('#app').innerHTML = U.recovery ? vResetPw() : U.forgot && !U.staffAuth && !acc ? vForgot() : U.mode === 'home' ? vHome() : U.mode === 'staff' ? (U.staffAuth ? VIEW_FN[U.view]() : vStaffLogin()) : (acc ? vAgency() : vAgencyAuth());
   if (U.padRole) initPad();
   renderModal();
 }
@@ -3058,6 +3241,9 @@ const ACT = {
   manualclose: () => { U.manual = null; render(); },
   manualsave: () => manualSave(),
   manualquick: b => manualQuick(b),
+  apcheck: () => apprCheck(getReq(U.letterId)),
+  apcert: () => apprCert(getReq(U.letterId)),
+  apreturn: async () => { const r = getReq(U.letterId); const ok = await confirmBox({ title: 'ส่งกลับให้เจ้าหน้าที่แก้ไข', html: '<label for="ap-note">เหตุผล / สิ่งที่ต้องแก้ (ถ้ามี)</label><input id="ap-note" style="width:100%">', ok: 'ส่งกลับ' }); if (ok) apprReturn(r, (confirmBox.vals || [])[0] || ''); },
   signmode: b => setSignMode(getReq(U.letterId), b.dataset.v),
   recall: b => { if (!armed(b, 'กดอีกครั้งเพื่อยืนยันดึงกลับ')) return; const r = getReq(U.letterId); recallReply(r); U.panel = ''; renderModal(); render(); toast('ดึงหนังสือกลับมาแก้ไขแล้ว แก้ไขเสร็จแล้วส่งใหม่ได้ (ใช้เลขที่หนังสือเดิม)'); },
   stampopen: b => { U.letterId = null; U.stampId = b.dataset.id; renderModal(); },
@@ -3079,8 +3265,8 @@ const ACT = {
   gsopen: () => openSearch(),
   gsstu: b => { U.gq = b.dataset.q; closeSearch(); go('grads'); },
   usereg: b => { U.draft.regno = b.dataset.v; const el = $('#rc-reg'); if (el) { el.value = b.dataset.v; el.focus(); } },
-  home: () => { U.mode = 'home'; U.authErr = ''; U.letterId = null; render(); window.scrollTo(0, 0); },
-  role: b => { U.mode = b.dataset.r; U.authErr = ''; U.letterId = null; render(); window.scrollTo(0, 0); },
+  home: () => { U.mode = 'home'; U.forgot = null; U.authErr = ''; U.letterId = null; render(); window.scrollTo(0, 0); },
+  role: b => { U.mode = b.dataset.r; U.forgot = null; U.authErr = ''; U.letterId = null; render(); window.scrollTo(0, 0); },
   logout: async () => { if (CLOUD) { if (saving || SYNC.state === 'pending') { toast('กำลังบันทึกข้อมูล รอสักครู่แล้วออกจากระบบอีกครั้ง', 'err'); return; } await sb.auth.signOut(); S = emptyState(); U.me = null; } U.staffAuth = false; U.agencyId = null; U.adraft = null; U.letterId = null; U.mode = 'home'; saveSession(); render(); toast('ออกจากระบบแล้ว'); },
   atab: b => { U.aTab = b.dataset.t; U.authErr = ''; render(); },
   ademo: b => { const a = S.agencies.find(x => x.id === b.dataset.id); $('#al-email').value = a.email; $('#al-pw').value = a.pw0; },
@@ -3121,7 +3307,7 @@ const ACT = {
   returnreq: b => {
     const reason = ($('#ret-reason')?.value || '').trim();
     if (!reason) return toast('ระบุเหตุผลที่ส่งกลับ', 'err');
-    const r = getReq(b.dataset.id); r.status = 'returned'; r.returnReason = reason;
+    const r = getReq(b.dataset.id); r.status = 'returned'; r.returnReason = reason; delete r.route;
     addTL(r, `เจ้าหน้าที่ส่งคำขอกลับให้แก้ไข: ${reason}`, true);
     U.returnId = null; save(); render(); toast('ส่งคำขอกลับให้หน่วยงานแก้ไขแล้ว');
   },
@@ -3173,16 +3359,38 @@ const ACT = {
     addTL(r, `ยืนยันผลที่ตรงกับฐานข้อมูล ${list.length} ราย`, false);
     refreshStatus(r); save(); render(); toast(`ยืนยันผล ${list.length} ราย`);
   },
-  savereg: b => {
+  savereg: async b => {
     const r = getReq(b.dataset.id), k = b.dataset.k; if (!r) return;
-    const inp = $(`#${k}-reg-${r.id}`), reg = thaiDigits(inp?.value || '').trim(), dt = $(`#${k}-date-${r.id}`)?.value || r.recvDate;
+    const inp = $(`#${k}-reg-${r.id}`), reg = thaiDigits(inp?.value || '').trim(), dt = $(`#${k}-date-${r.id}`)?.value || r.recvDate, tm = thaiDigits($(`#${k}-time-${r.id}`)?.value || '').trim().replace(':', '.');
     if (!reg) { toast('กรอกเลขทะเบียนรับจากงานธุรการ', 'err'); inp?.focus(); return; }
     if (regTaken(reg, r.id)) return toast(`เลขทะเบียนรับ ${reg} ถูกใช้แล้ว`, 'err');
-    r.regNo = reg; r.recvDate = dt; if (r.dueText) r.dueDate = parseDue(r.dueText, dt);
+    const routed = inRoute(r);
+    r.regNo = reg; r.recvDate = dt; if (tm) r.recvTime = tm; if (r.dueText) r.dueDate = parseDue(r.dueText, dt);
+    if (r.stamp) Object.assign(r.stamp.f, { no: reg.split('/')[0].trim(), date: fmtShortDate(dt), time: r.recvTime || r.stamp.f.time });
     addTL(r, `ลงทะเบียนรับ เลขทะเบียนรับ ${reg}`, true);
-    save(); render(); toast(`บันทึกเลขทะเบียนรับ ${reg} แล้ว`);
+    let mailTo = '';
+    if (routed) {
+      const t = r.route || (r.route = {}), byClerk = !!t.sentAt && U.rtSelf !== r.id;
+      Object.assign(t, { regAt: Date.now(), regBy: whoAmI(byClerk ? 'งานธุรการ' : 'เจ้าหน้าที่งานวัดผล') });
+      addTL(r, byClerk ? 'งานธุรการลงทะเบียนรับแล้ว ส่งกลับงานวัดและประเมินผล (รอเสนอรองผู้อำนวยการและผู้อำนวยการทราบ)' : 'เจ้าหน้าที่ลงเลขรับตามที่งานธุรการแจ้ง (รอเสนอรองผู้อำนวยการและผู้อำนวยการทราบ)');
+      if (byClerk && t.sentEmail && t.sentEmail !== meEmail()) mailTo = t.sentEmail;
+    }
+    U.rtSelf = null; save(); render(); toast(`บันทึกเลขทะเบียนรับ ${reg} แล้ว${routed ? ' · ส่งกลับงานวัดผลแล้ว' : ''}`);
+    if (mailTo) notifyMail(mailTo, `[ลงรับแล้ว] หนังสือขอตรวจสอบวุฒิ เลขรับ ${reg} · ${r.agency}`,
+      `งานธุรการลงทะเบียนรับหนังสือแล้ว\nเลขรับ: ${reg}\nวันที่รับ: ${fmtLong(dt)}${r.recvTime ? ' เวลา ' + r.recvTime + ' น.' : ''}\nหน่วยงาน: ${r.agency}\nหนังสือที่: ${r.docNo || '-'}\n\nเมื่อรองผู้อำนวยการและผู้อำนวยการทราบแล้ว กด "รับหนังสือคืน" และดำเนินการตรวจสอบต่อได้ที่: ${sysLink()}`);
+  },
+  rtsend: b => routeSend(getReq(b.dataset.id), !!b.dataset.again),
+  rtack: b => routeAck(getReq(b.dataset.id)),
+  rtself: b => { U.rtSelf = U.rtSelf === b.dataset.id ? null : b.dataset.id; render(); },
+  rtinbox: () => { U.rtab = 'inbox'; go('receive'); },
+  enddl: async b => {
+    const a = (getReq(b.dataset.id) || {}).endorsed; if (!a) return;
+    try { await saveFile(a.path && CLOUD ? await cloudDownload('attachments', a.path) : dataURLtoBlob(a.data), a.name); } catch (e) { if (!e || e.code !== 'declined') toast('ดาวน์โหลดไม่สำเร็จ', 'err'); }
   },
   letter: b => { const lr = getReq(b.dataset.id); if (lr && !lr.regNo && lr.status !== 'replied') { toast('กรอกเลขทะเบียนรับจากงานธุรการก่อนสร้างหนังสือตอบ', 'err'); U.reqId = lr.id; go('verify'); return; } if (lr && lr.status !== 'replied' && incompleteOf(lr).length) { toast('ข้อมูลผู้สำเร็จการศึกษายังไม่ครบ (ปพ.1 / วันที่จบ) กรอกในหน้าตรวจสอบก่อน', 'err'); U.reqId = lr.id; go('verify'); return; } U.letterId = b.dataset.id; U.panel = ''; U.mail = null; U.post = null; U.modalView = 'letter'; renderModal(); },
+  forgot: b => { U.forgot = b.dataset.r; U.authErr = ''; U.authOk = ''; U.fpEmail = (($('#sl-email') || $('#al-email') || {}).value || U.loginEmail || '').trim(); render(); setTimeout(() => $('#fp-email')?.focus(), 0); },
+  forgotback: () => { const r = U.forgot; U.forgot = null; if (U.fpEmail) U.loginEmail = U.fpEmail; U.authErr = ''; U.authOk = ''; U.mode = r === 'agency' ? 'agency' : 'staff'; render(); },
+  resetcancel: async () => { U.recovery = false; U.authErr = ''; try { await sb.auth.signOut(); } catch (e) { /* ออกจากระบบไม่สำเร็จ */ } U.mode = 'home'; render(); },
   closemodal: () => { U.stampId = null; U.letterId = null; U.panel = ''; U.mail = null; U.post = null; U.modalView = 'letter'; renderModal(); render(); },
   issue: b => { const r = getReq(b.dataset.id); if (!issueNumber(r)) return; save(); renderModal(); toast(`ออกเลขหนังสือส่ง ${S.settings.docPrefix}${r.outNo}`); },
   sent: b => { const r = getReq(b.dataset.id); if (!markSent(r, 'other', {})) return; render(); toast('บันทึกการส่งหนังสือแล้ว'); },
@@ -3429,6 +3637,7 @@ const IN = {
   feq: el => { U.fq = el.value; $('#fe-table').innerHTML = feesTable(); }
 };
 const CH = {
+  certset: el => { const f = el.dataset.f; S.settings[f] = el.type === 'checkbox' ? el.checked : el.value.trim().toLowerCase(); save(); render(); },
   rsignmode: el => setSignMode(getReq(U.letterId), el.value),
   stf: el => {
     const r = getReq(U.stampId), sp = stampOf(r), f = el.dataset.f;
@@ -3436,6 +3645,21 @@ const CH = {
     else if (f.startsWith('tick.')) sp.f.tick = Object.assign({}, sp.f.tick, { [f.slice(5)]: el.checked });
     else sp.f[f] = el.type === 'checkbox' ? el.checked : (el.tagName === 'TEXTAREA' ? el.value.replace(/\s+$/, '') : el.value.trim());
     save(); stampRedraw(r);
+  },
+  endfile: async el => {
+    const r = getReq(el.dataset.id), file = el.files[0]; if (!r || !file) return;
+    toast('กำลังแนบหนังสือฉบับเกษียณ...');
+    try {
+      let a;
+      if (CLOUD) {
+        const ext = (file.name.match(/\.[a-z0-9]+$/i) || ['.pdf'])[0], path = `endorsed/${r.id}-${Date.now()}${ext}`;
+        const { error } = await sb.storage.from('attachments').upload(path, file, { contentType: file.type || 'application/octet-stream', upsert: true });
+        if (error) throw new Error(cloudMsg(error));
+        a = { name: file.name, type: file.type, size: file.size, path, at: Date.now() };
+      } else a = { name: file.name, type: file.type, size: file.size, data: await blobToDataURL(file), at: Date.now() };
+      r.endorsed = a; addTL(r, 'แนบหนังสือเข้าฉบับที่รองผู้อำนวยการและผู้อำนวยการลงนามเกษียณแล้ว');
+      save(); render(); toast('แนบหนังสือฉบับเกษียณแล้ว');
+    } catch (e) { toast('แนบไฟล์ไม่สำเร็จ: ' + ((e && e.message) || e), 'err'); }
   },
   stfile: async el => {
     const r = getReq(U.stampId), file = el.files[0]; if (!r || !file) return;
@@ -3667,10 +3891,31 @@ const FORMS = {
     }
     save(); render(); toast('บันทึกการตั้งค่าแล้ว');
   },
+  forgotpw: async () => {
+    const email = ($('#fp-email').value || '').trim().toLowerCase(); U.fpEmail = email; U.authErr = ''; U.authOk = '';
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { U.authErr = 'กรอกอีเมลให้ถูกต้อง'; render(); return; }
+    const btn = $('form[data-form="forgotpw"] button[type=submit]'); if (btn) { btn.disabled = true; btn.textContent = 'กำลังส่ง...'; }
+    const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: location.origin + location.pathname });
+    if (error) U.authErr = /rate|seconds|429/i.test(error.message) ? 'ขอลิงก์ถี่เกินไป รอสักครู่แล้วลองใหม่' : cloudMsg(error);
+    else U.authOk = `ถ้าอีเมล ${email} มีบัญชีในระบบ จะได้รับลิงก์ตั้งรหัสผ่านใหม่ภายในไม่กี่นาที (ตรวจในกล่องจดหมายขยะด้วย) · เปิดลิงก์จากอีเมลล่าสุดเท่านั้น`;
+    render();
+  },
+  resetpw: async () => {
+    const n1 = $('#rp-new').value, n2 = $('#rp-new2').value; U.authErr = '';
+    if (n1.length < 8) { U.authErr = 'รหัสผ่านใหม่ต้องมีอย่างน้อย 8 ตัวอักษร'; render(); return; }
+    if (n1 !== n2) { U.authErr = 'ยืนยันรหัสผ่านใหม่ไม่ตรงกัน'; render(); return; }
+    const btn = $('form[data-form="resetpw"] button[type=submit]'); if (btn) { btn.disabled = true; btn.textContent = 'กำลังบันทึก...'; }
+    const { error } = await sb.auth.updateUser({ password: n1 });
+    if (error) { U.authErr = /session|jwt|expired/i.test(error.message) ? 'ลิงก์หมดอายุแล้ว กด "ยกเลิก" แล้วขอลิงก์ใหม่ที่ "ลืมรหัสผ่าน?"' : /different|same/i.test(error.message) ? 'รหัสผ่านใหม่ต้องไม่ซ้ำรหัสผ่านเดิม' : cloudMsg(error); render(); return; }
+    U.recovery = false;
+    try { await cloudEnter(await fetchProfile()); render(); toast('ตั้งรหัสผ่านใหม่และเข้าสู่ระบบแล้ว'); }
+    catch (e) { U.mode = 'home'; U.authErr = ''; render(); toast('ตั้งรหัสผ่านใหม่แล้ว · ' + cloudMsg(e), 'err'); }
+  },
   stafflogin: async () => {
     if (CLOUD) {
       U.authErr = ''; const btn = $('form[data-form="stafflogin"] button[type=submit]'); if (btn) { btn.disabled = true; btn.textContent = 'กำลังเข้าสู่ระบบ...'; }
-      try { await cloudLogin($('#sl-email').value.trim(), $('#sl-pw').value, 'staff'); U.view = 'dash'; render(); toast('เข้าสู่ระบบเจ้าหน้าที่แล้ว'); }
+      U.loginEmail = $('#sl-email').value.trim();
+      try { await cloudLogin(U.loginEmail, $('#sl-pw').value, 'staff'); U.view = 'dash'; render(); toast('เข้าสู่ระบบเจ้าหน้าที่แล้ว'); }
       catch (e) { U.authErr = cloudMsg(e); render(); }
       return;
     }
@@ -3681,7 +3926,8 @@ const FORMS = {
   alogin: async () => {
     if (CLOUD) {
       U.authErr = ''; U.authOk = '';
-      try { await cloudLogin($('#al-email').value.trim().toLowerCase(), $('#al-pw').value, 'agency'); render(); toast('เข้าสู่ระบบแล้ว'); }
+      U.loginEmail = $('#al-email').value.trim().toLowerCase();
+      try { await cloudLogin(U.loginEmail, $('#al-pw').value, 'agency'); render(); toast('เข้าสู่ระบบแล้ว'); }
       catch (e) { U.authErr = cloudMsg(e); render(); }
       return;
     }
@@ -3756,6 +4002,23 @@ const FORMS = {
   }
 };
 
+/* ปุ่มเปิด/ปิดดูรหัสผ่าน: ใส่ให้ทุกช่องรหัสผ่านอัตโนมัติ (รวมหน้าตั้งค่าและป็อบอัพ) */
+const EYE = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>';
+const EYE_OFF = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3l18 18"/><path d="M10.6 5.1A10.4 10.4 0 0 1 12 5c6.4 0 10 7 10 7a17.6 17.6 0 0 1-3.2 4.1M6.6 6.6C3.9 8.3 2 12 2 12s3.6 7 10 7a9.7 9.7 0 0 0 5.4-1.6"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg>';
+function pwEnhance() {
+  document.querySelectorAll('input[type="password"]:not([data-pw])').forEach(inp => {
+    inp.dataset.pw = '1';
+    const w = document.createElement('span'); w.className = 'pw-wrap'; inp.parentNode.insertBefore(w, inp); w.appendChild(inp);
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'pw-eye'; b.title = 'แสดงรหัสผ่าน'; b.setAttribute('aria-label', 'แสดงรหัสผ่าน'); b.setAttribute('aria-pressed', 'false'); b.innerHTML = EYE; w.appendChild(b);
+  });
+}
+new MutationObserver(pwEnhance).observe(document.body, { childList: true, subtree: true });
+document.addEventListener('click', e => {
+  const b = e.target.closest && e.target.closest('.pw-eye'); if (!b) return;
+  const inp = b.parentNode.querySelector('input'), show = inp.type === 'password';
+  inp.type = show ? 'text' : 'password'; b.innerHTML = show ? EYE_OFF : EYE; b.setAttribute('aria-pressed', String(show));
+  b.title = show ? 'ซ่อนรหัสผ่าน' : 'แสดงรหัสผ่าน'; b.setAttribute('aria-label', b.title); inp.focus();
+});
 document.addEventListener('click', e => { const el = e.target.closest('[data-act]'); if (!el || el.disabled) return; const fn = ACT[el.dataset.act]; if (fn) fn(el, e); });
 document.addEventListener('input', e => { const k = e.target.dataset && e.target.dataset.in; if (k && IN[k]) IN[k](e.target); });
 document.addEventListener('change', e => { const k = e.target.dataset && e.target.dataset.ch; if (k && CH[k]) CH[k](e.target); });

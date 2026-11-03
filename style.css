@@ -1,17 +1,17 @@
 /* WNM-Educational Measurement and Evaluation Section
-   แนวทาง: "Champagne Premium" (โทนสว่าง) — พรีเมียม สุขุม · พื้นงาช้าง แถบหัวแชมเปญอ่อน ตัวอักษรน้ำตาลเข้ม เส้นทองแชมเปญบางๆ
-   แยกโทนจากงานในห้องเรียน เหมาะกับงานทะเบียน/วัดผลและเอกสารทางการ
+   แนวทาง: "White · Gold · Cream · Brown" — เรียบหรู ดูแพง น่าเชื่อถือ
+   การ์ดขาวบนพื้นครีม · ตัวอักษรและปุ่มหลักน้ำตาลเอสเปรสโซ · เส้นทองโบราณบางๆ เฉพาะจุดสำคัญ
    Noto Serif Thai (หัวเรื่อง) + IBM Plex Sans Thai (ส่วนใช้งาน) · หนังสือราชการ/PDF ใช้ TH Sarabun ตามเดิม */
 :root{
-  --navy:#2a2420;--navy-2:#1f1a17;--navy-ink:#f8f1e4;--navy-muted:#cdbd9f;
-  --primary:#8a6a3d;--primary-ink:#fffaf1;--primary-soft:rgba(154,123,79,.11);--primary-strong:#6c522d;
-  --gold:#c8a96a;--gold-ink:#8a6a3d;--gold-soft:#f4ecdc;
-  --red:#a8432f;--green:#5b7a3e;--blue:#5d7088;--yellow:#b8902f;--pink:#8f5b6b;
-  --bg:#f6f2ea;--surface:#fffdf9;--surface2:#faf6ef;--line:#e6ddcd;--line-2:#efe8db;--field:#d8ccb6;--outline:#c9baa0;
-  --text:#2b2622;--muted:#74685b;--ink-bg:#2b2622;--ink-fg:#fffaf1;--ring:rgba(154,123,79,.38);
-  --ok-bg:#edf2e6;--ok-fg:#4a6631;--warn-bg:#f7edd6;--warn-fg:#76560f;--danger-bg:#f6e5e0;--danger-fg:#96382a;--info-bg:#f1eadf;--info-fg:#6c522d;--neutral-bg:#f1ece4;--neutral-fg:#5e554b;
-  --shadow:0 14px 36px rgba(60,44,24,.10);--shadow-sm:0 1px 2px rgba(60,44,24,.07);
-  --r-lg:14px;--r:10px;--r-sm:7px;
+  --navy:#3a2616;--navy-2:#2a1b0f;--navy-ink:#fffaf0;--navy-muted:#cbb48a;
+  --primary:#5a3b20;--primary-ink:#fffdf8;--primary-soft:rgba(90,59,32,.075);--primary-strong:#43291a;
+  --gold:#b48a3c;--gold-ink:#8a6624;--gold-soft:#f7f0de;
+  --red:#a3402c;--green:#4f6e3a;--blue:#56677c;--yellow:#b08a2e;--pink:#8d5a68;
+  --bg:#f6f0e4;--surface:#ffffff;--surface2:#fbf8f1;--line:#e9dfcc;--line-2:#f2ebdd;--field:#d9cab0;--outline:#c8b393;
+  --text:#2d2016;--muted:#76665a;--ink-bg:#2d2016;--ink-fg:#fffaf0;--ring:rgba(180,138,60,.42);
+  --ok-bg:#eef2e6;--ok-fg:#46642f;--warn-bg:#f8efd9;--warn-fg:#74550f;--danger-bg:#f7e7e2;--danger-fg:#923626;--info-bg:#f4ecdf;--info-fg:#5a3b20;--neutral-bg:#f2ede4;--neutral-fg:#5d5248;
+  --shadow:0 22px 48px -18px rgba(58,38,22,.22),0 2px 6px rgba(58,38,22,.05);--shadow-sm:0 1px 2px rgba(58,38,22,.05),0 6px 18px -10px rgba(58,38,22,.12);
+  --r-lg:12px;--r:9px;--r-sm:6px;
   --f-head:"Noto Serif Thai","Sarabun","IBM Plex Sans Thai",serif;
   --f-ui:"IBM Plex Sans Thai","Noto Sans Thai",system-ui,sans-serif;
 }
@@ -53,7 +53,7 @@ h2 .ic,h3 .ic{color:var(--primary);margin-right:2px}
 .brand-en{font-size:11px;color:var(--navy-muted);letter-spacing:.03em}
 .top-right{display:flex;flex-direction:column;align-items:flex-end;gap:6px}
 .seg{display:inline-flex;align-items:center;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.14);border-radius:var(--r);padding:3px;gap:2px}
-.seg button{border:0;background:transparent;color:#dfe7f4;font:inherit;font-size:14px;font-weight:500;padding:7px 12px;border-radius:var(--r-sm);cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+.seg button{border:0;background:transparent;color:var(--text);font:inherit;font-size:14px;font-weight:500;padding:7px 12px;border-radius:var(--r-sm);cursor:pointer;display:inline-flex;align-items:center;gap:6px}
 .seg button:hover{background:rgba(255,255,255,.1);color:#fff}
 .seg button.on{background:#fff;color:var(--navy)}
 .seg .who{font-weight:600;padding:7px 10px;color:#fff;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-flex;align-items:center;gap:6px;border-right:1px solid rgba(255,255,255,.14)}
@@ -137,7 +137,7 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 /* ฟอร์ม */
 label{display:block;font-weight:600;margin:0 0 6px;font-size:13.5px;color:var(--text)}
 input,select,textarea{width:100%;padding:10px 12px;border:1px solid var(--field);border-radius:var(--r);background:var(--surface);font:inherit;font-size:15px;color:var(--text);outline:none;transition:border-color .15s,box-shadow .15s}
-input::placeholder,textarea::placeholder{color:#8b95a3}
+input::placeholder,textarea::placeholder{color:#a8998a}
 textarea{resize:vertical;font-family:ui-monospace,Menlo,monospace;font-size:13px}
 input[readonly]{background:var(--surface2);color:var(--muted)}
 input:focus,select:focus,textarea:focus{border-color:var(--primary);box-shadow:0 0 0 3px var(--primary-soft)}
@@ -347,7 +347,7 @@ select.r-mismatch{background:var(--info-bg);color:var(--info-fg)}select.r-notfou
 .role-icon{height:84px;border-radius:16px;display:grid;place-items:center;font-size:38px;margin-bottom:6px}
 button.role-card{font:inherit;color:inherit;text-align:left;width:100%;display:grid;gap:8px;align-content:start}
 button.role-card h2,button.role-card p{margin:0}button.role-card .btn{justify-self:start;margin-top:6px}
-.role-card:focus-visible{outline:3px solid rgba(77,159,255,.45);outline-offset:2px}
+.role-card:focus-visible{outline:3px solid var(--ring);outline-offset:2px}
 .action-card .role-icon{height:72px;font-size:32px;margin-bottom:6px}
 .flow{list-style:none;counter-reset:f;margin:0;padding:0;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
 .flow li{counter-increment:f;display:grid;gap:4px;align-content:start;padding:14px;border:1px solid var(--line);border-radius:14px;background:var(--surface2)}
@@ -714,33 +714,86 @@ select.res{min-width:184px}
 .cfm h3{margin:0;font-size:19px}
 .cfm-body p{margin:0 0 8px;line-height:1.55}
 
-/* ===== Champagne Premium: รายละเอียดเพิ่มเติม ===== */
-h1,h2,h3{letter-spacing:.1px}
-/* โทนสว่าง: แถบหัวสีแชมเปญอ่อน ตัวหนังสือน้ำตาลเข้ม */
-.top{background:linear-gradient(180deg,#fcf8f0 0%,#f3e8d4 100%);color:var(--text);border-bottom:1px solid var(--line)}
-.brand-unit,.brand-th{color:var(--text)}
-.brand-th{border-bottom-color:rgba(60,44,24,.22)}
-.brand-dept{color:var(--gold-ink)}
+/* ===== White · Gold · Cream · Brown: รายละเอียด ===== */
+h1,h2,h3{letter-spacing:.1px;color:var(--navy)}
+/* ส่วนหัว: ขาวไล่ครีม แถบเอสเปรสโซบนสุด เส้นทองคู่ด้านล่าง */
+.top{background:linear-gradient(180deg,#ffffff 0%,#fcf8f0 100%);color:var(--text);border-top:3px solid var(--navy)}
+.top:after{height:5px;background:linear-gradient(var(--gold) 0 1.5px,transparent 1.5px 3.5px,var(--gold) 3.5px 5px);opacity:1}
+.brand-unit,.brand-th{color:var(--navy)}
+.brand-th{border-bottom-color:rgba(58,38,22,.2)}
+.brand-dept{color:var(--gold-ink);letter-spacing:.05em}
 .brand-en{color:var(--muted)}
-.seg{background:rgba(255,253,249,.75);border:1px solid var(--line)}
+.brand-logo{background:#fff;box-shadow:0 0 0 1px var(--gold),0 0 0 4px #fff,0 0 0 5px rgba(180,138,60,.45),0 6px 16px -6px rgba(58,38,22,.25)}
+.seg{background:#fff;border:1px solid var(--line);box-shadow:var(--shadow-sm)}
 .seg button,.seg .seg-search{color:var(--text)}
-.seg button:hover{background:var(--primary-soft);color:var(--text)}
+.seg button:hover{background:var(--gold-soft);color:var(--navy)}
 .seg button.on{background:var(--primary);color:var(--primary-ink)}
-.seg .who{color:var(--text);border-right-color:var(--line)}
+.seg .who{color:var(--navy);border-right-color:var(--line)}
 .seg-search kbd{border-color:var(--line);color:var(--muted)}
-.modal-bar{background:linear-gradient(180deg,#fcf8f0 0%,#f3e8d4 100%);color:var(--text);box-shadow:0 2px 0 var(--gold)}
+/* เมนู */
+.navbar{background:rgba(255,255,255,.96);backdrop-filter:saturate(1.2) blur(6px);border-bottom:1px solid var(--line)}
+.nav button.on{color:var(--navy);border-bottom-color:var(--gold)}
+.tab.on{color:var(--navy);border-bottom-color:var(--gold)}
+/* แถบหัวหน้าหนังสือ */
+.modal-bar{background:linear-gradient(180deg,#ffffff 0%,#fbf6ec 100%);color:var(--text);box-shadow:0 1px 0 var(--line),0 3px 0 -1px var(--gold)}
 .modal-bar .muted{color:var(--muted)}
 .modal-bar .btn-outline{background:var(--surface);border-color:var(--outline);color:var(--text)}
-.modal-bar .btn-outline:hover:not(:disabled){border-color:var(--primary);color:var(--text);background:var(--surface)}
+.modal-bar .btn-outline:hover:not(:disabled){border-color:var(--gold);color:var(--navy);background:var(--gold-soft)}
 .modal-bar .badge{background:var(--gold-soft);color:var(--gold-ink)}
 .modal-bar .btn-blue{background:var(--surface);color:var(--text);border:1px solid var(--outline)}
 .modal-bar .btn-blue:hover:not(:disabled){background:var(--gold-soft)}
 .modal-bar .btn-dark{background:var(--ink-bg);color:var(--ink-fg)}
-.palette{background:rgba(43,38,34,.38)}
-.top:after{height:4px;background:linear-gradient(var(--gold) 0 1px,transparent 1px 3px,var(--gold) 3px 4px);opacity:.9}
-.brand-logo{box-shadow:0 0 0 1.5px var(--gold),0 0 0 4px rgba(200,169,106,.18)}
+.palette{background:rgba(45,32,22,.42)}
+/* การ์ด ตัวเลข และหน้าแรก */
 .card{border-color:var(--line);box-shadow:var(--shadow-sm)}
+.hero{background:linear-gradient(135deg,#ffffff 0%,#fbf6ec 100%);box-shadow:var(--shadow-sm)}
+.hero:before{content:"";position:absolute;left:0;right:0;top:0;height:3px;background:linear-gradient(90deg,transparent,var(--gold) 18%,var(--gold) 82%,transparent)}
+.ledger{box-shadow:var(--shadow-sm)}
+.lc:before{background:var(--accent,var(--gold))}
+.lc-num{color:var(--navy)}
+.role-icon{background:var(--gold-soft)!important;box-shadow:inset 0 0 0 1px rgba(180,138,60,.3)}
+.role-card{transition:border-color .2s,box-shadow .2s,transform .2s}
+.role-card:hover{border-color:var(--gold);box-shadow:var(--shadow);transform:translateY(-1px)}
+.auth{box-shadow:var(--shadow);border-top:3px solid var(--gold)}
+.eyebrow{color:var(--gold-ink);letter-spacing:.04em}
+/* ปุ่มและช่องกรอก */
+.btn-primary{box-shadow:inset 0 0 0 1px rgba(214,178,104,.25),0 1px 2px rgba(58,38,22,.2)}
+.btn-blue{background:var(--gold-soft);color:var(--primary)}.btn-blue:hover:not(:disabled){background:#f0e4c8}
+.btn-yellow{background:var(--gold);color:#fff}
+.btn-outline:hover:not(:disabled){border-color:var(--gold);color:var(--navy);background:var(--gold-soft)}
+input:focus,select:focus,textarea:focus{border-color:var(--gold);box-shadow:0 0 0 3px rgba(180,138,60,.16)}
+input[type=radio],input[type=checkbox]{accent-color:var(--primary)}
 .mode-btn.on{background:var(--gold-soft);border-color:var(--gold);color:var(--text);box-shadow:0 2px 0 var(--gold)}
 .mode-btn.on b{color:var(--primary-strong)}
 .mode-btn.on span{color:var(--muted)}
-::selection{background:rgba(200,169,106,.35)}
+.footer{background:linear-gradient(180deg,transparent,#fbf6ec);border-top:1px solid var(--line)}
+.footer:before{content:"";display:block;width:56px;height:1px;margin:0 auto 12px;background:var(--gold)}
+::selection{background:rgba(180,138,60,.3)}
+
+/* ขั้นตอนรับรองก่อนส่ง */
+.ap-bar{max-width:1500px;margin:10px auto 0;padding:12px 20px;display:grid;gap:10px}
+.ap-steps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.ap-step{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:1px solid var(--line);border-radius:var(--r);background:var(--surface)}
+.ap-step.cur{border-color:var(--gold);background:var(--gold-soft)}
+.ap-step.done{border-color:var(--ok-fg);background:var(--ok-bg)}
+.ap-n{width:26px;height:26px;border-radius:50%;flex:none;display:grid;place-items:center;font-weight:700;font-size:13px;background:var(--line);color:var(--text)}
+.ap-step.cur .ap-n{background:var(--gold);color:#fff}
+.ap-step.done .ap-n{background:var(--ok-fg);color:#fff}
+.ap-sub{font-size:12.5px;color:var(--muted);line-height:1.4;margin-top:2px}
+.ap-warn{color:var(--danger-fg);font-weight:600}
+.ap-act{justify-content:flex-end}
+@media(max-width:900px){.ap-steps{grid-template-columns:1fr}}
+@media print{.ap-bar{display:none!important}}
+.rt-bar{max-width:none;margin:10px 0 0;padding:10px 0 0;border-top:1px dashed var(--line)}
+.regbox .rt-bar{border-top:0}
+.end-row{margin-top:8px;align-items:center}
+
+/* ช่องรหัสผ่าน: ปุ่มเปิด/ปิดดูรหัส */
+.pw-wrap{position:relative;display:block}
+.pw-wrap input{width:100%;padding-right:46px}
+.pw-wrap input::-ms-reveal,.pw-wrap input::-ms-clear{display:none}
+.pw-eye{position:absolute;right:6px;top:50%;transform:translateY(-50%);width:34px;height:34px;border:0;border-radius:8px;background:transparent;color:var(--muted);display:grid;place-items:center;cursor:pointer}
+.pw-eye:hover{color:var(--primary);background:var(--primary-soft)}
+.pw-eye:focus-visible{outline:2px solid var(--ring);outline-offset:1px}
+.pw-eye[aria-pressed="true"]{color:var(--primary)}
+.forgot-link{justify-self:end;font-size:14px;margin-top:-4px}
