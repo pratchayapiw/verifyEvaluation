@@ -595,7 +595,9 @@ select.res{min-width:184px}
 .lt-table td.tick{font-family:"Segoe UI Symbol","Segoe UI","DejaVu Sans","Arial Unicode MS",sans-serif;font-size:15pt;font-weight:400;line-height:1}
 /* ตราประทับบนชื่อนายทะเบียน */
 .letter .co-sign{position:relative}
-.letter .seal-img{position:absolute;left:50%;top:-.35cm;width:2.8cm;height:auto;transform:translateX(-50%);opacity:.6;pointer-events:none;z-index:2}
+.letter .seal-img{position:absolute;left:50%;top:-.35cm;width:2.8cm;height:auto;transform:translateX(-50%);opacity:.6;pointer-events:none;z-index:1}
+/* ลายเซ็นอยู่เหนือตราประทับ: ลายเซ็นนายทะเบียนเข้มเท่าลายเซ็นคนอื่น (ตราไม่ทับให้จาง) */
+.letter .co-dots .sig-img{position:relative;z-index:3}
 .seal-set{display:flex;gap:14px;align-items:center;border:1px solid var(--line);border-radius:var(--r);padding:12px;margin-top:12px;background:var(--surface2)}
 .seal-prev{width:86px;height:auto;background:#fff;border-radius:6px;padding:4px;border:1px solid var(--line)}
 /* ช่องสี่เหลี่ยมพร้อมเครื่องหมายถูก (สรุปผลในหนังสือ) และเครื่องหมายถูกในตาราง: Arial Unicode MS */

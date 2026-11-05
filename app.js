@@ -1,6 +1,6 @@
 /* WNM-Educational Measurement and Evaluation Section Ver.1 — ระบบรับ–ส่งและตรวจสอบวุฒิการศึกษา (Prototype, เก็บข้อมูลในเบราว์เซอร์) */
 /* รุ่นของระบบ — release.py ปรับให้อัตโนมัติทุกครั้งที่ปรับปรุง ห้ามแก้ด้วยมือ */
-const APP_VERSION = { no: 'Ver.31', at: '03/11/2569 17:51' };
+const APP_VERSION = { no: 'Ver.32', at: '05/11/2569 13:22' };
 'use strict';
 
 /* ---------- ค่าคงที่ ---------- */
@@ -1690,7 +1690,7 @@ function reqSign(r) {
   return r.sign;
 }
 const coKeys = r => { const sg = reqSign(r); return CO_ROLES.filter(k => sg.co.includes(k) && !(sg.main === 'registrar' && k === 'registrar')); };
-function sigImg(k, sg) { const s = signOf(k); return sg.img !== false && s.sig ? `<img class="sig-img" src="${s.sig}" alt="ลายเซ็น${esc(SIGN_ROLES[k].label)}">` : ''; }
+function sigImg(k, sg) { const s = signOf(k); return sg.img !== false && s.sig ? `<img class="sig-img" src="${sigSrc(s.sig)}" alt="ลายเซ็น${esc(SIGN_ROLES[k].label)}">` : ''; }
 /* รูปแบบหนังสือตอบ: draft = ฉบับร่างเพื่อเสนอลงนาม (ไม่มีภาพลายเซ็น) · esign = ฉบับลงนามอิเล็กทรอนิกส์ */
 const signMode = r => reqSign(r).img !== false ? 'esign' : 'draft';
 /* รหัสตรวจสอบเป็นตัวอักษรล้วน (ไม่ถูกแปลงเป็นเลขไทย) */
@@ -1726,7 +1726,7 @@ function mainSignHTML(r) {
     const s = signOf('director'); lines = [`(${s.name || dots})`, s.position]; sig = sigImg('director', sg);
   } else {
     const d = deputyOf(sg); lines = [`(${d.name || dots})`, d.position, `${MAIN_MODES[mainMode(sg)].line}${school}`];
-    sig = sg.img !== false && d.sig ? `<img class="sig-img" src="${d.sig}" alt="ลายเซ็นผู้ลงนาม">` : '';
+    sig = sg.img !== false && d.sig ? `<img class="sig-img" src="${sigSrc(d.sig)}" alt="ลายเซ็นผู้ลงนาม">` : '';
   }
   /* หนังสือนำ: ลายเซ็น ผอ. อย่างเดียว ไม่ประทับตราโรงเรียน (ตราอยู่ที่ชื่อนายทะเบียนในบัญชีรายชื่อ) */
   return `<div class="lt-sign"><p>ขอแสดงความนับถือ</p><div class="sp">${sig}</div>${lines.filter(Boolean).map(l => `<p>${esc(l)}</p>`).join('')}</div>`;  /* ไม่พิมพ์ข้อความ "ลงนามอิเล็กทรอนิกส์ … รหัสตรวจสอบ" บนหนังสือ (ยังบันทึกวันเวลาลงนามไว้ในระบบ) */
@@ -1769,6 +1769,49 @@ function signEditor(r) {
   <label class="chk"><input type="checkbox" data-ch="rseal" ${sealOn(r) ? 'checked' : ''} ${dis || (S.settings.sealOff ? 'disabled' : '')}> ประทับตราโรงเรียนบนชื่อนายทะเบียน (ในบัญชีรายชื่อจากระบบ)</label>
   ${missing.length ? `<p class="muted small" style="margin:0">⚠️ ${missing.map(esc).join(' · ')} — เพิ่มได้ที่ ⚙️ ตั้งค่า › ผู้ลงนามและลายเซ็น</p>` : ''}</div>`;
 }
+/* ปรับความเข้มหมึกลายเซ็นให้เท่ากันทุกคน: เส้นที่เข้มที่สุดทึบเต็มที่ และสีหมึกเข้มระดับเดียวกัน (คงสีเดิม เช่น น้ำเงิน/ดำ) */
+function inkNorm(d) {
+  const al = [], lums = [];
+  for (let i = 0; i < d.length; i += 4) if (d[i + 3] > 8) al.push(d[i + 3]);
+  if (al.length < 20) return;
+  al.sort((a, b) => a - b);
+  const p90 = Math.max(40, al[Math.floor(al.length * 0.9)]), ka = 255 / p90;
+  for (let i = 0; i < d.length; i += 4) if (d[i + 3] >= p90 * 0.6) lums.push(0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]);
+  const ml = lums.length ? lums.reduce((a, b) => a + b, 0) / lums.length : 0, kc = ml > 60 ? 60 / ml : 1;
+  for (let i = 0; i < d.length; i += 4) {
+    if (!d[i + 3]) continue;
+    d[i + 3] = Math.min(255, Math.round(d[i + 3] * ka));
+    if (kc < 1) { d[i] = Math.round(d[i] * kc); d[i + 1] = Math.round(d[i + 1] * kc); d[i + 2] = Math.round(d[i + 2] * kc); }
+  }
+}
+/* ลายเซ็นที่บันทึกไว้แล้ว: ปรับความเข้มตอนแสดงผล (ไม่แก้ไฟล์เดิม) · เก็บผลไว้ใช้ซ้ำ แล้ววาดหน้าใหม่เมื่อพร้อม */
+const SIG_NORM = new Map();
+let sigRedraw = null;
+function sigNormalize(src) {
+  if (SIG_NORM.has(src)) return Promise.resolve(SIG_NORM.get(src));
+  return new Promise(res => {
+    const im = new Image();
+    im.onload = () => {
+      try {
+        const c = document.createElement('canvas'); c.width = im.naturalWidth; c.height = im.naturalHeight;
+        const g = c.getContext('2d'); g.drawImage(im, 0, 0);
+        const img = g.getImageData(0, 0, c.width, c.height); inkNorm(img.data); g.putImageData(img, 0, 0);
+        SIG_NORM.set(src, c.toDataURL('image/png'));
+      } catch (e) { SIG_NORM.set(src, src); }
+      res(SIG_NORM.get(src));
+    };
+    im.onerror = () => { SIG_NORM.set(src, src); res(src); };
+    im.src = src;
+  });
+}
+function sigSrc(src) {
+  if (!src || !/^data:image/.test(src)) return src;
+  if (SIG_NORM.has(src)) return SIG_NORM.get(src);
+  sigNormalize(src).then(() => { clearTimeout(sigRedraw); sigRedraw = setTimeout(() => { const a = document.activeElement; if (a && /INPUT|TEXTAREA|SELECT/.test(a.tagName)) return; render(); if (U.letterId || U.stampId) renderModal(); }, 60); });
+  return src;
+}
+/* ก่อนสร้าง PDF: เตรียมลายเซ็นที่ปรับความเข้มแล้วให้ครบ */
+const warmSigs = () => Promise.all(Object.values((S.settings && S.settings.signers) || {}).map(x => x && x.sig).filter(v => v && /^data:image/.test(v)).map(sigNormalize));
 /* ภาพลายเซ็น: พื้นขาวเป็นโปร่งใส ตัดขอบ ย่อสูงไม่เกิน 160 px */
 function processSig(src) {
   const c = document.createElement('canvas'); c.width = src.width || src.naturalWidth; c.height = src.height || src.naturalHeight;
@@ -1782,6 +1825,7 @@ function processSig(src) {
     if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
   }
   if (x1 < 0) return '';
+  inkNorm(d);
   ctx.putImageData(img, 0, 0);
   const pad = 6, w = x1 - x0 + 1 + pad * 2, h = y1 - y0 + 1 + pad * 2, k = Math.min(1, 160 / h, 600 / w);
   const o = document.createElement('canvas'); o.width = Math.round(w * k); o.height = Math.round(h * k);
@@ -1796,7 +1840,7 @@ function signRoleCard(k) {
        <div><label for="sg-${k}-pos">ตำแหน่ง</label><input id="sg-${k}-pos" data-ch="signer" data-k="${k}" data-f="position" value="${esc(s.position)}"></div>`}
   ${U.padRole === k
     ? `<canvas id="sig-pad" class="sig-pad" width="600" height="200" aria-label="พื้นที่วาดลายเซ็น"></canvas><div class="row"><button type="button" class="btn btn-primary sm" data-act="padsave">ใช้ลายเซ็นนี้</button><button type="button" class="btn btn-outline sm" data-act="padclear">ล้าง</button><button type="button" class="btn btn-outline sm" data-act="padcancel">ยกเลิก</button></div>`
-    : `<div class="sig-box">${s.sig ? `<img src="${s.sig}" alt="ลายเซ็น${esc(L)}">` : '<span class="muted small">ยังไม่มีภาพลายเซ็น</span>'}</div>
+    : `<div class="sig-box">${s.sig ? `<img src="${sigSrc(s.sig)}" alt="ลายเซ็น${esc(L)}">` : '<span class="muted small">ยังไม่มีภาพลายเซ็น</span>'}</div>
        <div class="row"><label class="btn btn-outline sm file-btn">📁 อัปโหลดรูป<input type="file" accept="image/*" class="vh" data-ch="sigfile" data-k="${k}"></label><button type="button" class="btn btn-outline sm" data-act="padopen" data-k="${k}">✏️ วาดลายเซ็น</button>${s.sig ? `<button type="button" class="btn btn-outline sm" data-act="sigclear" data-k="${k}">ลบ</button>` : ''}</div>`}</div>`;
 }
 function signSettings() {
@@ -1804,9 +1848,13 @@ function signSettings() {
   return `<div class="card"><h2>✍️ ผู้ลงนามและลายเซ็น</h2><p class="muted small" style="margin-top:-6px">ใส่ชื่อ ตำแหน่ง และภาพลายเซ็นของผู้ลงนามแต่ละตำแหน่ง อัปโหลดรูปลายเซ็นบนกระดาษขาว (ระบบลบพื้นขาวให้) หรือวาดบนจอ แล้วเลือกผู้ลงนามได้ในหน้าหนังสือแต่ละฉบับ</p>
   <div class="sign-grid">${['director', 'deputy', 'registrar', 'measure', 'staff'].map(signRoleCard).join('')}</div>
   <div class="range-box" style="margin-top:14px"><b>ขั้นตอนรับรองก่อนส่งหนังสือตอบ</b>
-    <label class="chk"><input type="checkbox" data-ch="certset" data-f="requireCert" ${certOn() ? 'checked' : ''}> ต้องให้เจ้าหน้าที่ตรวจข้อมูล แล้วนายทะเบียนรับรอง ก่อนลงนามและส่งหนังสือตอบ</label>
-    <div><label for="st-regemail">อีเมลบัญชีนายทะเบียน (ใช้เข้าสู่ระบบและรับแจ้งเตือน)</label><input id="st-regemail" type="email" data-ch="certset" data-f="registrarEmail" value="${esc(S.settings.registrarEmail || '')}" placeholder="registrar@school.ac.th"></div>
-    <p class="muted small" style="margin:0">เฉพาะบัญชีที่ใช้อีเมลนี้กด "ตรวจสอบและรับรอง" ได้ · ระบบแจ้งเตือนนายทะเบียนทางอีเมล (เมื่อตั้งค่าบริการส่งอีเมลแล้ว) และขึ้นแจ้งเตือนในหน้าหลักเมื่อนายทะเบียนเข้าสู่ระบบ</p></div>
+    <label class="chk"><input type="checkbox" data-ch="certset" data-f="requireCert" ${certOn() ? 'checked' : ''}> ต้องให้เจ้าหน้าที่ตรวจข้อมูล และแจ้ง/รับรอง ก่อนลงนามและส่งหนังสือตอบ</label>
+    <div class="sign-row"><span class="sign-lab">รูปแบบการรับรองของนายทะเบียนและผู้อำนวยการ</span>
+      <label class="chk"><input type="radio" name="cert-mode" value="notify" data-ch="certset" data-f="certMode" ${certMode() === 'notify' ? 'checked' : ''}> แจ้งเตือนทางอีเมล: ส่งลิงก์ไฟล์ PDF หนังสือตอบให้เปิดดู (ไม่ต้องเข้าสู่ระบบ)</label>
+      <label class="chk"><input type="radio" name="cert-mode" value="approve" data-ch="certset" data-f="certMode" ${certMode() === 'approve' ? 'checked' : ''}> นายทะเบียนเข้าสู่ระบบกด "ตรวจสอบและรับรอง"</label></div>
+    <div class="grid g2"><div><label for="st-regemail">อีเมลนายทะเบียน</label><input id="st-regemail" type="email" data-ch="certset" data-f="registrarEmail" value="${esc(S.settings.registrarEmail || '')}" placeholder="registrar@school.ac.th"></div>
+    <div><label for="st-diremail">อีเมลผู้อำนวยการ</label><input id="st-diremail" type="email" data-ch="certset" data-f="directorEmail" value="${esc(S.settings.directorEmail || '')}" placeholder="director@school.ac.th"></div></div>
+    <p class="muted small" style="margin:0">${certMode() === 'notify' ? `เมื่อเจ้าหน้าที่กด "ตรวจข้อมูลถูกต้องสมบูรณ์แล้ว" ระบบสร้าง PDF หนังสือตอบฉบับที่จะส่งจริง แล้วส่งลิงก์ให้นายทะเบียน (เพื่อตรวจสอบ) และผู้อำนวยการ (เพื่อทราบ) ทางอีเมล ลิงก์เปิดได้ ${REVIEW_DAYS} วันโดยไม่ต้องเข้าสู่ระบบ · ต้องตั้งค่าบริการส่งอีเมลก่อน` : 'เฉพาะบัญชีที่ใช้อีเมลนายทะเบียนกด "ตรวจสอบและรับรอง" ได้ · ระบบแจ้งเตือนนายทะเบียนทางอีเมล และขึ้นแจ้งเตือนในหน้าหลักเมื่อนายทะเบียนเข้าสู่ระบบ'}</p></div>
   <h3 style="margin:16px 0 8px">ค่าเริ่มต้นสำหรับหนังสือฉบับใหม่</h3>
   <div class="sign-row"><span class="sign-lab">ลงนามหนังสือ</span>
     ${Object.entries(MAIN_MODES).map(([k, m]) => `<label class="chk"><input type="radio" name="sd-main" value="${k}" data-ch="signdef" data-f="main" ${(MAIN_MODES[d.main] ? d.main : 'director') === k ? 'checked' : ''}> ${m.label}</label>`).join('')}</div>
@@ -2220,7 +2268,8 @@ function sendProblems(r, method, info = {}) {
   const miss = [!String(r.agency || '').trim() && 'ชื่อหน่วยงาน', !String(r.docNo || '').trim() && 'เลขที่หนังสือ', !r.docDate && 'ลงวันที่'].filter(Boolean);
   if (miss.length) P.push('ข้อมูลหนังสือของหน่วยงานไม่ครบ: ' + miss.join(', '));
   if (!(useSigned(r) || sysSigned(r))) P.push(signMode(r) === 'esign' ? 'เลือกฉบับลงนามอิเล็กทรอนิกส์แล้ว แต่ยังไม่มีภาพลายเซ็นของผู้ลงนาม (เพิ่มที่ ตั้งค่า › ผู้ลงนามและลายเซ็น) หรือแนบหนังสือตัวจริงที่ลงนามแล้ว (หัวข้อ 3)' : 'ยังไม่มีลายเซ็น: ฉบับร่างเพื่อเสนอลงนาม ต้องแนบหนังสือตัวจริงที่ผู้ลงนามลงนามแล้ว (หัวข้อ 3) หรือกดปุ่ม "ฉบับลงนามอิเล็กทรอนิกส์" ด้านบน');
-  if (certOn() && !apprOf(r).certified) P.push(apprOf(r).checked ? 'รอนายทะเบียนตรวจสอบและรับรอง (แถบขั้นตอนด้านบน)' : 'ยังไม่ได้ตรวจข้อมูลและส่งให้นายทะเบียนรับรอง (แถบขั้นตอนด้านบน)');
+  if (certOn() && !apprOf(r).certified) P.push(apprOf(r).checked ? 'รอนายทะเบียนตรวจสอบและรับรอง (แถบขั้นตอนด้านบน)' : (certMode() === 'notify' ? 'ยังไม่ได้ตรวจข้อมูลและแจ้งนายทะเบียน/ผู้อำนวยการ (แถบขั้นตอนด้านบน)' : 'ยังไม่ได้ตรวจข้อมูลและส่งให้นายทะเบียนรับรอง (แถบขั้นตอนด้านบน)'));
+  else if (certOn() && apprOf(r).a.notify && !(apprOf(r).a.notice && apprOf(r).a.notice.ok)) P.push('ยังส่งอีเมลแจ้งนายทะเบียนและผู้อำนวยการไม่สำเร็จ · กด "ลองส่งอีเมลอีกครั้ง" ในแถบขั้นตอนด้านบน');
   if (method === 'email' && !/^\S+@\S+\.\S+$/.test(String(info.to || ''))) P.push('อีเมลผู้รับไม่ถูกต้อง');
   if (method === 'post' && !String(r.aaddr || '').trim()) P.push('ยังไม่มีที่อยู่หน่วยงานสำหรับส่งไปรษณีย์');
   return P;
@@ -2290,6 +2339,9 @@ function routeBox(r, k) {
 /* ---------- ขั้นตอนรับรองก่อนส่ง: ① เจ้าหน้าที่วัดผลตรวจข้อมูลครบถ้วน → ② นายทะเบียนตรวจสอบและรับรอง → ③ เจ้าหน้าที่ลงนามแทน ผอ. และส่ง ---------- */
 const certOn = () => S.settings.requireCert !== false;
 const regEmail = () => String(S.settings.registrarEmail || '').trim().toLowerCase();
+const dirEmail = () => String(S.settings.directorEmail || '').trim().toLowerCase();
+/* รูปแบบการรับรอง: notify = แจ้งนายทะเบียนและผู้อำนวยการทางอีเมลพร้อมลิงก์ PDF หนังสือตอบ (ค่าเริ่มต้น) · approve = นายทะเบียนเข้าสู่ระบบกดรับรอง */
+const certMode = () => (S.settings.certMode === 'approve' ? 'approve' : 'notify');
 const meEmail = () => (CLOUD && U.me ? String(U.me.email || '').toLowerCase() : '');
 /* นายทะเบียน = บัญชีที่อีเมลตรงกับที่ตั้งไว้ (โหมดทดลองในเบราว์เซอร์: ทุกคนกดรับรองได้) */
 const isRegistrar = () => !CLOUD || !regEmail() || meEmail() === regEmail();
@@ -2299,6 +2351,7 @@ function apprOf(r) { const a = r.approval || {}; const fresh = a.print && a.prin
 function certChip(r) {
   if (!certOn() || r.status === 'replied' || !r.persons.length) return '';
   const x = apprOf(r);
+  if (x.certified && x.a.notify) return ` <span class="badge ${x.a.notice && x.a.notice.ok ? 'ok' : 'warn'}">${x.a.notice && x.a.notice.ok ? '✔ แจ้งนายทะเบียน/ผอ. แล้ว' : 'ยังส่งอีเมลแจ้งไม่สำเร็จ'}</span>`;
   return x.certified ? ' <span class="badge ok">✔ นายทะเบียนรับรองแล้ว</span>' : x.checked ? ' <span class="badge warn">รอนายทะเบียนรับรอง</span>' : x.stale ? ' <span class="badge danger">แก้ไขหลังตรวจ · ต้องตรวจใหม่</span>' : x.a.returnedAt ? ' <span class="badge danger">นายทะเบียนส่งกลับแก้ไข</span>' : '';
 }
 const waitCert = () => REQS().filter(r => r.status !== 'replied' && apprOf(r).checked && !apprOf(r).certified);
@@ -2312,6 +2365,7 @@ async function apprCheck(r) {
   if (inRoute(r)) return toast('ยังไม่ครบขั้นตอนรับหนังสือผ่านงานธุรการ · กด "รับหนังสือคืน · ผอ. ทราบแล้ว" ก่อนส่งให้นายทะเบียนรับรอง', 'err');
   const P = r.persons.filter(unconf).length, inc = incompleteOf(r).length;
   if (!r.persons.length || P || inc) return toast(`ยังส่งให้นายทะเบียนรับรองไม่ได้: ${!r.persons.length ? 'ยังไม่มีรายชื่อ' : P ? `ยืนยันผลไม่ครบ ${P} ราย` : `ข้อมูลไม่ครบ ${inc} ราย`}`, 'err');
+  if (certMode() === 'notify') return apprNotify(r);
   const by = CLOUD && U.me ? U.me.email : ((signOf('staff').name) || 'เจ้าหน้าที่');
   r.approval = { checkedAt: Date.now(), checkedBy: by, checkedEmail: meEmail(), print: resultPrint(r) };
   addTL(r, `เจ้าหน้าที่งานวัดและประเมินผลตรวจข้อมูลถูกต้องสมบูรณ์แล้ว ส่งให้นายทะเบียนรับรอง (${by})`);
@@ -2319,6 +2373,47 @@ async function apprCheck(r) {
   const sent = await notifyMail(regEmail(), `[รอรับรอง] หนังสือแจ้งผลตรวจสอบวุฒิ เลขรับ ${r.regNo || '-'} · ${r.agency}`,
     `เรียน นายทะเบียน\n\nเจ้าหน้าที่งานวัดและประเมินผลการศึกษาตรวจข้อมูลหนังสือแจ้งผลการตรวจสอบวุฒิการศึกษาถูกต้องสมบูรณ์แล้ว\nหน่วยงาน: ${r.agency}\nหนังสือที่: ${r.docNo || '-'}\nเลขรับ: ${r.regNo || '-'}\nจำนวน: ${r.persons.length} ราย\n\nโปรดเข้าสู่ระบบเพื่อตรวจสอบและรับรอง: ${sysLink()}\n\n${S.settings.school}`);
   toast(`ส่งให้นายทะเบียนรับรองแล้ว${sent ? ' · แจ้งเตือนทางอีเมลแล้ว' : regEmail() ? '' : ' · (ยังไม่ได้ตั้งอีเมลนายทะเบียน จึงแจ้งเตือนในระบบอย่างเดียว)'}`);
+}
+/* แจ้งเตือนนายทะเบียนและผู้อำนวยการ: สร้าง PDF หนังสือตอบ (ฉบับที่จะส่งจริง) เก็บในระบบ แล้วส่งลิงก์ให้เปิดดูทางอีเมล (ลิงก์ใช้ได้ 7 วัน) */
+const REVIEW_DAYS = 7;
+async function apprNotify(r, again) {
+  const now = Date.now(), by = CLOUD && U.me ? U.me.email : ((signOf('staff').name) || 'เจ้าหน้าที่');
+  if (!again || !apprOf(r).certified) r.approval = { checkedAt: now, checkedBy: by, checkedEmail: meEmail(), print: resultPrint(r), certAt: now, certBy: 'แจ้งนายทะเบียนและผู้อำนวยการทางอีเมล', notify: true };
+  const old = r.approval.notice;
+  const n = { at: now, by, to: [], ok: false, link: '', exp: 0, path: '', err: '' };
+  r.approval.notice = Object.assign({}, n, { sending: true }); save(); renderModal(); render();
+  const who = [[regEmail(), 'registrar', 'นายทะเบียน'], [dirEmail(), 'director', 'ผู้อำนวยการ']].filter(x => x[0]);
+  if (!who.length) n.err = 'ยังไม่ได้ตั้งอีเมลนายทะเบียนและผู้อำนวยการ (ตั้งค่า › ผู้ลงนามและลายเซ็น)';
+  else if (!(CLOUD || S.settings.gasUrl)) n.err = 'ยังไม่ได้ตั้งค่าบริการส่งอีเมล';
+  else {
+    toast('กำลังสร้าง PDF หนังสือตอบและส่งอีเมลแจ้งเตือน...');
+    try {
+      const blob = await replyPDF(r), fname = `หนังสือตอบ_เลขรับ${(r.regNo || r.id).replace(/\//g, '-')}.pdf`;
+      let pdf = null;
+      if (CLOUD) {
+        const path = `review/${r.id}-${now}.pdf`;
+        const up = await sb.storage.from('attachments').upload(path, blob, { contentType: 'application/pdf', upsert: true });
+        if (up.error) throw new Error(cloudMsg(up.error));
+        const sg = await sb.storage.from('attachments').createSignedUrl(path, REVIEW_DAYS * 86400);
+        if (sg.error || !sg.data) throw new Error(cloudMsg(sg.error || 'สร้างลิงก์ไม่สำเร็จ'));
+        Object.assign(n, { link: sg.data.signedUrl, exp: now + REVIEW_DAYS * 86400e3, path });
+        if (old && old.path) sb.storage.from('attachments').remove([old.path]).catch(() => {});
+      } else pdf = await blobToB64(blob);
+      const persons = r.persons.length, found = r.persons.filter(p => p.result === 'found').length;
+      for (const [to, k, role] of who) {
+        const head = k === 'registrar' ? 'เพื่อโปรดตรวจสอบความถูกต้องของบัญชีรายชื่อผู้ขอตรวจสอบวุฒิการศึกษา หากพบข้อผิดพลาดโปรดแจ้งเจ้าหน้าที่งานวัดและประเมินผลก่อนส่งหนังสือ' : 'เพื่อโปรดทราบ';
+        await sendViaGAS({ to, cc: '', subject: `[แจ้งเพื่อ${k === 'registrar' ? 'ตรวจสอบ' : 'ทราบ'}] หนังสือแจ้งผลการตรวจสอบวุฒิการศึกษา เลขรับ ${r.regNo || '-'} · ${r.agency}`,
+          text: `เรียน ${role}\n\nเจ้าหน้าที่งานวัดและประเมินผลการศึกษาตรวจข้อมูลหนังสือแจ้งผลการตรวจสอบวุฒิการศึกษาถูกต้องสมบูรณ์แล้ว ${head}\n\nหน่วยงาน: ${r.agency}\nหนังสือที่: ${r.docNo || '-'}${r.docDate ? ' ลงวันที่ ' + fmtLong(r.docDate) : ''}\nเลขรับ: ${r.regNo || '-'}\nจำนวน: ${persons} ราย (สำเร็จการศึกษาจริง ${found} ราย)\n\n${n.link ? `เปิดดูหนังสือตอบ (PDF): ${n.link}\n(ลิงก์ใช้ได้ถึง ${fmtDT(n.exp)} · ไม่ต้องเข้าสู่ระบบ)` : 'หนังสือตอบ (PDF) แนบมากับอีเมลนี้'}\n\nเจ้าหน้าที่ผู้ตรวจ: ${by}\n${S.settings.school}`,
+          replyTo: meEmail() || S.settings.email || '', fromName: S.settings.school, pdf, filename: pdf ? fname : '' });
+        n.to.push(to);
+      }
+      n.ok = true;
+    } catch (e) { n.err = (e && e.message) || String(e); }
+  }
+  r.approval.notice = n;
+  addTL(r, n.ok ? `เจ้าหน้าที่ตรวจข้อมูลถูกต้องสมบูรณ์แล้ว · แจ้งนายทะเบียนและผู้อำนวยการทางอีเมลพร้อมลิงก์ PDF หนังสือตอบ (${n.to.join(', ')})` : `เจ้าหน้าที่ตรวจข้อมูลถูกต้องสมบูรณ์แล้ว · ส่งอีเมลแจ้งนายทะเบียน/ผู้อำนวยการไม่สำเร็จ: ${n.err}`);
+  save(); renderModal(); render();
+  toast(n.ok ? `ส่งลิงก์ PDF ให้${who.map(x => x[2]).join('และ')}ทางอีเมลแล้ว · ลงนามและส่งหนังสือได้` : 'ตรวจข้อมูลแล้ว แต่ยังส่งอีเมลแจ้งไม่สำเร็จ: ' + n.err, n.ok ? '' : 'err');
 }
 async function apprCert(r) {
   if (!isRegistrar()) return toast('เฉพาะนายทะเบียนเท่านั้นที่รับรองได้', 'err');
@@ -2336,8 +2431,24 @@ function apprReturn(r, note) {
   addTL(r, `นายทะเบียนส่งกลับให้แก้ไข${note ? ': ' + note : ''}`);
   save(); renderModal(); render(); toast('ส่งกลับให้เจ้าหน้าที่แก้ไขแล้ว');
 }
+function apprBarNotify(r) {
+  const x = apprOf(r), a = x.a, n = Object.assign({}, a.notice || {}), t = v => (v ? fmtDT(v) : '');
+  if (n.sending && Date.now() - n.at > 120000) { n.sending = false; n.err = 'การส่งค้างหรือถูกปิดหน้าก่อนเสร็จ'; }
+  n.to = n.to || [];
+  const step = (k, title, done, cur, body) => `<div class="ap-step ${done ? 'done' : ''} ${cur ? 'cur' : ''}"><span class="ap-n">${done ? '✓' : k}</span><div><b>${title}</b><div class="ap-sub">${body}</div></div></div>`;
+  const to = [regEmail() && 'นายทะเบียน', dirEmail() && 'ผู้อำนวยการ'].filter(Boolean);
+  const s1 = x.checked ? `ตรวจแล้ว ${t(a.checkedAt)} · ${esc(a.checkedBy || '')}` : x.stale ? '<span class="ap-warn">ข้อมูลถูกแก้ไขหลังแจ้งเตือน ต้องตรวจและแจ้งใหม่ (ส่ง PDF ฉบับใหม่)</span>' : 'ตรวจรายชื่อ ผลการตรวจ และหนังสือให้ถูกต้องสมบูรณ์';
+  const s2 = n.sending ? 'กำลังสร้าง PDF และส่งอีเมล...' : x.checked && n.ok ? `ส่งลิงก์ PDF แล้ว ${t(n.at)} · ${n.to.map(esc).join(', ')}${n.link && n.exp > Date.now() ? ` · <a href="${esc(n.link)}" target="_blank" rel="noopener">เปิด PDF ที่ส่ง</a>` : n.link ? ' · ลิงก์หมดอายุแล้ว' : ''}`
+    : x.checked && n.err ? `<span class="ap-warn">ส่งอีเมลไม่สำเร็จ: ${esc(n.err)}</span>` : `ส่งลิงก์ไฟล์ PDF หนังสือตอบให้${to.length ? to.join('และ') : 'นายทะเบียนและผู้อำนวยการ'}เปิดดูทางอีเมล`;
+  const s3 = x.checked ? 'เลือกฉบับลงนามอิเล็กทรอนิกส์ (ลงนามแทนผู้อำนวยการ) แล้วส่งหนังสือในหัวข้อ 4' : 'ลงนามแทนผู้อำนวยการและส่งหนังสือตอบ';
+  const act = n.sending ? '' : !x.checked ? `<button type="button" class="btn btn-primary sm" data-act="apcheck">✔ ตรวจข้อมูลถูกต้องสมบูรณ์แล้ว · แจ้งนายทะเบียนและ ผอ. (ส่งลิงก์ PDF)</button>`
+    : `<button type="button" class="btn btn-outline sm" data-act="apnotify">🔔 ${n.ok ? 'ส่งแจ้งเตือนอีกครั้ง (PDF ฉบับล่าสุด)' : 'ลองส่งอีเมลอีกครั้ง'}</button>`;
+  const warn = !regEmail() && !dirEmail() ? `<p class="notice warn small" style="margin:0">⚠️ ยังไม่ได้ตั้งอีเมลนายทะเบียนและผู้อำนวยการ จึงยังส่งลิงก์แจ้งเตือนไม่ได้ · ตั้งได้ที่ ตั้งค่า › ผู้ลงนามและลายเซ็น</p>` : '';
+  return `<div class="ap-bar">${warn}<div class="ap-steps">${step(1, 'เจ้าหน้าที่งานวัดและประเมินผลตรวจข้อมูล', x.checked, !x.checked, s1)}${step(2, 'แจ้งนายทะเบียนและผู้อำนวยการ (อีเมล)', x.checked && n.ok, x.checked && !n.ok, s2)}${step(3, 'ลงนามแทนผู้อำนวยการและส่ง', false, x.checked, s3)}</div>${act ? `<div class="row ap-act">${act}</div>` : ''}</div>`;
+}
 function apprBar(r) {
   if (!certOn() || r.status === 'replied') return '';
+  if (certMode() === 'notify' && !(r.approval && r.approval.checkedAt && !r.approval.notify && apprOf(r).checked)) return apprBarNotify(r);
   const x = apprOf(r), a = x.a, t = v => v ? fmtDT(v) : '';
   const step = (n, title, done, cur, body) => `<div class="ap-step ${done ? 'done' : ''} ${cur ? 'cur' : ''}"><span class="ap-n">${done ? '✓' : n}</span><div><b>${title}</b><div class="ap-sub">${body}</div></div></div>`;
   const s1 = x.checked ? `ตรวจแล้ว ${t(a.checkedAt)} · ${esc(a.checkedBy || '')}` : x.stale ? '<span class="ap-warn">ข้อมูลถูกแก้ไขหลังตรวจ ต้องตรวจและส่งรับรองใหม่</span>' : a.returnedAt ? `<span class="ap-warn">นายทะเบียนส่งกลับให้แก้ไข${a.returnNote ? ': ' + esc(a.returnNote) : ''}</span>` : 'ตรวจผลทุกรายและข้อมูลในหนังสือให้ครบถ้วน';
@@ -2353,6 +2464,7 @@ function recallReply(r) {
   if (r.delivery) r.deliveries = (r.deliveries || []).concat([r.delivery]);
   r.delivery = null; r.sentDate = ''; r.recalledAt = Date.now(); delete r.publicResults;
   if (CLOUD && r.replyPdf) sb.storage.from('replies').remove([`${r.id}.pdf`]).catch(() => {});
+  if (CLOUD && r.approval && r.approval.notice && r.approval.notice.path) sb.storage.from('attachments').remove([r.approval.notice.path]).catch(() => {});
   r.replyPdf = false; r.replyName = ''; delete r.approval;
   r.status = 'done'; addTL(r, 'โรงเรียนดึงหนังสือแจ้งผลกลับไปแก้ไข และจะส่งฉบับแก้ไขให้อีกครั้ง', true);
   refreshStatus(r); save();
@@ -2763,7 +2875,7 @@ async function ensurePP1(r) {
     PP1_CACHE[pg.path] = await new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = rej; fr.readAsDataURL(blob); });
   }
 }
-async function replyPDF(r) { await ensurePP1(r); return makePDF(docHTML(r)); }
+async function replyPDF(r) { await ensurePP1(r); await warmSigs(); return makePDF(docHTML(r)); }
 
 /* หน้าสำเนา: รูป ปพ.1 + ข้อความกำกับการใช้ + "สำเนาถูกต้อง" */
 function pp1CopyPages(r) {
@@ -2773,7 +2885,7 @@ function pp1CopyPages(r) {
   return pp1Ready(r).flatMap(({ p, s }) => pp1Pages(s).map((pg, i, all) => `<article class="letter copy">
     <div class="cp-frame"><img class="cp-img" src="${pageSrc(pg)}" alt="สำเนา ปพ.1 ของ ${esc(pName(p))}${all.length > 1 ? ` หน้า ${i + 1}` : ''}">
     ${mark ? `<div class="cp-mark">${esc(mark)}</div>` : ''}</div>
-    <div class="cp-cert"><b>สำเนาถูกต้อง</b><div class="cp-sp">${sg.img !== false && who.sig ? `<img class="sig-img" src="${who.sig}" alt="ลายเซ็น">` : ''}</div><div>(${esc(who.name || dots)})</div><div>${esc(who.position || SIGN_ROLES[cert].label)}</div></div>
+    <div class="cp-cert"><b>สำเนาถูกต้อง</b><div class="cp-sp">${sg.img !== false && who.sig ? `<img class="sig-img" src="${sigSrc(who.sig)}" alt="ลายเซ็น">` : ''}</div><div>(${esc(who.name || dots)})</div><div>${esc(who.position || SIGN_ROLES[cert].label)}</div></div>
   </article>`)).join('');
 }
 
@@ -3243,6 +3355,7 @@ const ACT = {
   manualquick: b => manualQuick(b),
   apcheck: () => apprCheck(getReq(U.letterId)),
   apcert: () => apprCert(getReq(U.letterId)),
+  apnotify: () => apprNotify(getReq(U.letterId), true),
   apreturn: async () => { const r = getReq(U.letterId); const ok = await confirmBox({ title: 'ส่งกลับให้เจ้าหน้าที่แก้ไข', html: '<label for="ap-note">เหตุผล / สิ่งที่ต้องแก้ (ถ้ามี)</label><input id="ap-note" style="width:100%">', ok: 'ส่งกลับ' }); if (ok) apprReturn(r, (confirmBox.vals || [])[0] || ''); },
   signmode: b => setSignMode(getReq(U.letterId), b.dataset.v),
   recall: b => { if (!armed(b, 'กดอีกครั้งเพื่อยืนยันดึงกลับ')) return; const r = getReq(U.letterId); recallReply(r); U.panel = ''; renderModal(); render(); toast('ดึงหนังสือกลับมาแก้ไขแล้ว แก้ไขเสร็จแล้วส่งใหม่ได้ (ใช้เลขที่หนังสือเดิม)'); },
