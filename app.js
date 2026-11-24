@@ -1,6 +1,6 @@
 /* WNM-Educational Measurement and Evaluation Section Ver.1 — ระบบรับ–ส่งและตรวจสอบวุฒิการศึกษา (Prototype, เก็บข้อมูลในเบราว์เซอร์) */
 /* รุ่นของระบบ — release.py ปรับให้อัตโนมัติทุกครั้งที่ปรับปรุง ห้ามแก้ด้วยมือ */
-const APP_VERSION = { no: 'Ver.35', at: '24/11/2569 09:10' };
+const APP_VERSION = { no: 'Ver.36', at: '24/11/2569 17:57' };
 'use strict';
 
 /* ---------- ค่าคงที่ ---------- */
@@ -503,7 +503,8 @@ function matchPerson(p, students = S.students) {
     const bySid = !!(sidKey(p.sid) && sidKey(p.sid) === sidKey(s.sid));
     const byCid = !!(cid && cid === s.cid);
     const byName = !!(p.fname && normName(p.fname) === normName(s.fname) && normName(p.lname) === normName(s.lname));
-    const sc = (bySid ? 2 : 0) + (byCid ? 3 : 0) + (byName ? 2 : 0);
+    let sc = (bySid ? 2 : 0) + (byCid ? 3 : 0) + (byName ? 2 : 0);
+    if (sc) { if (p.level && s.level && normLevel(p.level) === s.level) sc += 0.6; if (p.gradDate && p.gradDate === s.gradDate) sc += 0.3; }
     if (sc > bestScore) { best = { s, bySid, byCid, byName }; bestScore = sc; }
   }
   if (!best) {
@@ -519,6 +520,19 @@ function matchPerson(p, students = S.students) {
   return issues.length
     ? { result: 'mismatch', matchedId: best.s.id, auto: issues.join(' · ') }
     : { result: 'found', matchedId: best.s.id, auto: 'ข้อมูลตรงกับฐานข้อมูล' };
+}
+/* ระเบียนในฐานข้อมูลของคนเดียวกันในระดับชั้นที่เลือก (คนที่จบทั้ง ม.3 และ ม.6 มี 2 ระเบียน: ชุด/เลขที่ ปพ.1 และเกรดเฉลี่ยต่างกัน) */
+function stuAtLevel(p, level, base) {
+  const lv = normLevel(level || ''); if (!lv) return null;
+  const ref = base || getStu(p.matchedId), cid = digits(p.cid) || (ref && ref.cid) || '';
+  const sk = sidKey(p.sid) || (ref && sidKey(ref.sid)) || '', fn = normName((ref && ref.fname) || p.fname || ''), ln = normName((ref && ref.lname) || p.lname || '');
+  let best = null, bs = 0;
+  S.students.forEach(s => {
+    if (s.level !== lv) return;
+    const sc = (cid && s.cid === cid ? 3 : 0) + (sk && sidKey(s.sid) === sk ? 2 : 0) + (fn && normName(s.fname) === fn && normName(s.lname) === ln ? 2 : 0);
+    if (sc > bs) { best = s; bs = sc; }
+  });
+  return bs >= 2 ? best : null;
 }
 /* เทียบรายบุคคลกับนักเรียนที่เลือก แล้วบอกว่าต่างกันตรงไหน */
 function compareWith(p, s) {
@@ -1096,7 +1110,7 @@ function verifyPanel(r) {
   ${r.persons.map((p, i) => {
     const s = getStu(p.matchedId), o = s ? outstanding(s.id) : 0;
     return `<tr><td>${i + 1}</td>
-    <td><b>${esc(pName(p))}</b><div class="sub">เลขประจำตัว ${esc(p.sid || '-')} · จบ ${p.gradDate ? fmtBE(p.gradDate) : esc(p.gradText || '-')} · ${esc(p.level || '-')}</div>${priorHTML(p, r)}</td>
+    <td><b>${esc(pName(p))}</b><div class="sub">เลขประจำตัว ${esc(p.sid || '-')} · จบ ${p.gradDate ? fmtBE(p.gradDate) : esc(p.gradText || '-')} · ${r.status === 'replied' ? esc(p.level || '-') : `<select class="lv-sel" id="plv-${p.id}" aria-label="ระดับชั้นที่จบ ${esc(p.fname)}" data-ch="plevel" data-r="${r.id}" data-i="${i}"><option value="">ระดับ —</option>${['ม.3', 'ม.6'].map(o => `<option ${normLevel(p.level || '') === o ? 'selected' : ''}>${o}</option>`).join('')}</select>`}</div>${levelHint(p)}${priorHTML(p, r)}</td>
     <td>${s ? `<b>${esc(fullName(s))}</b><div class="sub">รหัส ${esc(s.sid)} · ${esc(s.level)} · จบ ${fmtBE(s.gradDate)}</div>${pp1Cell(s, r.status === 'replied')}${pp1Mini(s, r)}${stuExtra(s)}${missingData(p, r).length && r.status !== 'replied' ? `<div class="small" style="color:var(--danger-fg);font-weight:700">⚠️ ขาด ${missingData(p, r).join(', ')}</div>` : ''}` : '<span class="muted">—</span>'}${p.auto ? `<div class="small auto">${esc(p.auto)}</div>` : ''}${suggestHTML(p, r, i)}${manualBtn(r, p, i)}</td>
     <td class="num">${s && s.gpa ? `<b>${esc(s.gpa)}</b>` : '<span class="muted">—</span>'}</td>
     <td>${s ? (o > 0 ? `<span class="badge danger">฿${money(o)}</span>` : '<span class="badge ok">ไม่มี</span>') : '<span class="muted">—</span>'}</td>
@@ -1509,6 +1523,7 @@ function vSettings() {
   <div class="grid g2" ${tp('stab', 'mail', 'school')}>
   <h2 class="span2" style="margin:0">บริการส่งอีเมล (Google Apps Script)</h2>
   <div class="span2"><label for="st-gasUrl">บริการส่งอีเมล (Google Apps Script Web App URL)</label><input id="st-gasUrl" value="${esc(st.gasUrl || '')}" placeholder="https://script.google.com/macros/s/.../exec"><p class="muted small" style="margin:6px 0 0">ตั้งค่าตามไฟล์ gas/Code.gs และ README ในชุดดาวน์โหลด ส่งอีเมลผ่านระบบได้เมื่อเปิดระบบจากเว็บของโรงเรียน (ไม่ใช่หน้าตัวอย่าง)</p></div>
+  <div class="span2 row"><input id="st-mailtest" type="email" style="max-width:320px" aria-label="อีเมลสำหรับทดสอบ" placeholder="อีเมลที่จะรับอีเมลทดสอบ" value="${esc((CLOUD && U.me && U.me.email) || st.email || '')}"><button type="button" class="btn btn-outline" data-act="mailtest">📧 ส่งอีเมลทดสอบ</button><span id="mailtest-res" class="small"></span></div>
   
   </div>
   <div class="row end"><button class="btn btn-primary" type="submit">บันทึกการตั้งค่า</button></div></form>
@@ -3126,6 +3141,12 @@ function regImportCard() {
 const MANUAL_EXT = 'แหล่งข้อมูลภายนอก (ค้นจากระบบ/หน่วยงานภายนอก)';
 const MANUAL_EVIDENCE = [MANUAL_EXT, 'ปพ.3 (แบบรายงานผู้สำเร็จการศึกษา) ต้นฉบับ', 'สมุดทะเบียนนักเรียน', 'ปพ.1 ฉบับสำเนาคู่ฉบับ', 'แฟ้มประวัตินักเรียน', 'ระบบสารสนเทศของโรงเรียน'];
 const manualOpenFor = (r, i) => U.manual && U.manual.r === r.id && U.manual.i === i;
+/* คนเดียวกันมีระเบียนอีกระดับชั้นในฐานข้อมูล: บอกให้รู้ว่าเลือกระดับอื่นได้ */
+function levelHint(p) {
+  const s = getStu(p.matchedId); if (!s || p.manual) return '';
+  const other = stuAtLevel(p, s.level === 'ม.3' ? 'ม.6' : 'ม.3', s);
+  return other ? `<div class="small muted">มีข้อมูลระดับ ${other.level} ด้วย (จบ ${fmtBE(other.gradDate)}${other.gpa ? ' · เกรดเฉลี่ย ' + esc(other.gpa) : ''}) · เปลี่ยนระดับชั้นที่จบได้</div>` : '';
+}
 function manualBtn(r, p, i) {
   if (r.status === 'replied' || manualOpenFor(r, i)) return '';
   if (getStu(p.matchedId) && p.result !== 'notfound') return '';
@@ -3141,13 +3162,14 @@ function manualRow(r, p, i) {
     <div class="grid g4">
       <div><label for="mc-sid">เลขประจำตัวนักเรียน</label><input id="mc-sid" value="${v('sid', p.sid)}" inputmode="numeric"></div>
       <div><label for="mc-cid">เลขบัตรประชาชน</label><input id="mc-cid" value="${v('cid', p.cid)}" inputmode="numeric" maxlength="17"></div>
-      <div><label for="mc-level">ระดับชั้นที่จบ</label><select id="mc-level"><option value="">— เลือก —</option>${lv.map(o => `<option ${(m.level || normLevel(p.level || '')) === o ? 'selected' : ''}>${o}</option>`).join('')}</select></div>
+      <div><label for="mc-level">ระดับชั้นที่จบ</label><select id="mc-level" data-ch="mclevel" data-r="${r.id}" data-i="${i}"><option value="">— เลือก —</option>${lv.map(o => `<option ${(m.level || normLevel(p.level || '')) === o ? 'selected' : ''}>${o}</option>`).join('')}</select></div>
       <div><label for="mc-date">วันที่จบ (อนุมัติจบ)</label><input id="mc-date" value="${v('gradText', p.gradDate ? fmtBE(p.gradDate) : p.gradText)}" placeholder="31/03/2568"></div>
       <div><label for="mc-gpa">เกรดเฉลี่ย</label><input id="mc-gpa" value="${v('gpa')}" inputmode="decimal" placeholder="เช่น 3.25"></div>
       <div><label for="mc-pp1s">ปพ.1 ชุดที่</label><input id="mc-pp1s" value="${v('pp1Set')}" inputmode="numeric" placeholder="00000"></div>
       <div><label for="mc-pp1n">ปพ.1 เลขที่</label><input id="mc-pp1n" value="${v('pp1No')}" inputmode="numeric" placeholder="000000"></div>
       <div><label for="mc-ev">หลักฐานที่ใช้ตรวจ</label><input id="mc-ev" list="mc-evlist" value="${v('evidence', MANUAL_EVIDENCE[0])}"><datalist id="mc-evlist">${MANUAL_EVIDENCE.map(o => `<option value="${esc(o)}"></option>`).join('')}</datalist></div>
     </div>
+    <p class="muted small" id="mc-lvhint" style="margin:0">${(() => { const lv = m.level || normLevel(p.level || ''), s = stuAtLevel(p, lv); return s ? `ข้อมูล ${lv} จากฐานข้อมูล: จบ ${fmtBE(s.gradDate)} · เกรดเฉลี่ย ${esc(s.gpa || '-')} · ${pp1Text(s) || 'ยังไม่มีเลข ปพ.1'} · เปลี่ยนระดับชั้นแล้วระบบเติมข้อมูลของระดับนั้นให้` : 'เลือกระดับชั้นที่จบ ถ้ามีในฐานข้อมูล ระบบเติมวันที่จบ เกรดเฉลี่ย และชุด/เลขที่ ปพ.1 ของระดับนั้นให้'; })()}</p>
     <div class="sign-row"><span class="sign-lab">ผลการตรวจสอบ</span>
       ${[['found', 'สำเร็จการศึกษาจริง'], ['mismatch', 'ข้อมูลไม่ตรงกับหลักฐาน'], ['notfound', 'ไม่พบหลักฐานการสำเร็จการศึกษา']].map(([k, t]) => `<label class="chk"><input type="radio" name="mc-res" value="${k}" ${(m.result || 'found') === k ? 'checked' : ''}> ${t}</label>`).join('')}</div>
     <div><label for="mc-note">หมายเหตุ (แสดงในหนังสือตอบ ถ้ามี)</label><input id="mc-note" value="${esc(p.note || '')}" list="note-presets" placeholder="เช่น ชื่อสกุลเดิม … / ศึกษาต่อสถาบันอื่น"></div>
@@ -3553,6 +3575,17 @@ const ACT = {
     try { await saveFile(a.path && CLOUD ? await cloudDownload('attachments', a.path) : dataURLtoBlob(a.data), a.name); } catch (e) { if (!e || e.code !== 'declined') toast('ดาวน์โหลดไม่สำเร็จ', 'err'); }
   },
   letter: b => { const lr = getReq(b.dataset.id); if (lr && !lr.regNo && lr.status !== 'replied') { toast('กรอกเลขทะเบียนรับจากงานธุรการก่อนสร้างหนังสือตอบ', 'err'); U.reqId = lr.id; go('verify'); return; } if (lr && lr.status !== 'replied' && incompleteOf(lr).length) { toast('ข้อมูลผู้สำเร็จการศึกษายังไม่ครบ (ปพ.1 / วันที่จบ) กรอกในหน้าตรวจสอบก่อน', 'err'); U.reqId = lr.id; go('verify'); return; } U.letterId = b.dataset.id; U.panel = ''; U.mail = null; U.post = null; U.modalView = 'letter'; renderModal(); },
+  mailtest: async b => {
+    const to = ($('#st-mailtest').value || '').trim(), out = $('#mailtest-res');
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to)) return toast('กรอกอีเมลที่จะรับอีเมลทดสอบ', 'err');
+    if (!CLOUD && !S.settings.gasUrl) return toast('ยังไม่ได้ตั้งค่าบริการส่งอีเมล', 'err');
+    b.disabled = true; out.textContent = 'กำลังส่ง...'; out.style.color = '';
+    try {
+      await sendViaGAS({ to, cc: '', subject: `[ทดสอบ] อีเมลจากระบบ ${S.settings.school}`, text: `อีเมลทดสอบจากระบบตรวจสอบวุฒิการศึกษา\nส่งเมื่อ ${fmtDT(Date.now())}\n\nถ้าได้รับอีเมลนี้ แปลว่าการส่งอีเมลอัตโนมัติใช้งานได้แล้ว`, replyTo: S.settings.email || '', fromName: S.settings.school, pdf: null, filename: '' });
+      out.textContent = `✔ ส่งแล้ว ตรวจกล่องจดหมาย ${to} (รวมถึงจดหมายขยะ)`; out.style.color = 'var(--ok-fg)';
+    } catch (e) { out.textContent = '✖ ส่งไม่สำเร็จ: ' + ((e && e.message) || e); out.style.color = 'var(--danger-fg)'; }
+    b.disabled = false;
+  },
   forgot: b => { U.forgot = b.dataset.r; U.authErr = ''; U.authOk = ''; U.fpEmail = (($('#sl-email') || $('#al-email') || {}).value || U.loginEmail || '').trim(); render(); setTimeout(() => $('#fp-email')?.focus(), 0); },
   forgotback: () => { const r = U.forgot; U.forgot = null; if (U.fpEmail) U.loginEmail = U.fpEmail; U.authErr = ''; U.authOk = ''; U.mode = r === 'agency' ? 'agency' : 'staff'; render(); },
   resetcancel: async () => { U.recovery = false; U.authErr = ''; try { await sb.auth.signOut(); } catch (e) { /* ออกจากระบบไม่สำเร็จ */ } U.mode = 'home'; render(); },
@@ -3973,6 +4006,27 @@ const CH = {
   },
   note: el => { const r = getReq(el.dataset.r); r.persons[+el.dataset.i].note = el.value.trim(); save(); },
   gdlevel: el => { U.glevel = el.value; $('#gd-table').innerHTML = gradsTable(); },
+  plevel: el => {
+    const r = getReq(el.dataset.r), p = r && r.persons[+el.dataset.i]; if (!p) return;
+    const lv = el.value, prev = getStu(p.matchedId); p.level = lv;
+    if (p.manual) { p.manualCheck = Object.assign({}, p.manualCheck, { level: lv }); }
+    else {
+      const sib = lv && prev ? stuAtLevel(p, lv, prev) : null;
+      autoCheck(p);
+      if (sib && p.matchedId !== sib.id) { const c = compareWith(p, sib); Object.assign(p, { matchedId: sib.id, result: c.result, auto: c.auto, confirmed: false }); }
+    }
+    addTL(r, `เปลี่ยนระดับชั้นที่จบของ ${pName(p)} เป็น ${lv || '(ไม่ระบุ)'}${getStu(p.matchedId) ? ' · ใช้ข้อมูล ' + getStu(p.matchedId).level + ' จากฐานข้อมูล' : ''}`);
+    refreshStatus(r); save(); render();
+    const s = getStu(p.matchedId);
+    toast(s && s.level === lv ? `ใช้ข้อมูล ${lv}: เกรดเฉลี่ย ${s.gpa || '-'} · ${pp1Text(s) || 'ยังไม่มีเลข ปพ.1'} · ตรวจแล้วกดยืนยันผล` : `เปลี่ยนเป็น ${lv || 'ไม่ระบุ'} แล้ว${lv ? ' · ไม่พบข้อมูลระดับนี้ในฐานข้อมูล' : ''}`, s && s.level === lv ? 'ok' : 'warn');
+  },
+  mclevel: el => {
+    const r = getReq(el.dataset.r), p = r && r.persons[+el.dataset.i]; if (!p) return;
+    const s = stuAtLevel(p, el.value), set = (id, v) => { const f = $('#' + id); if (f) f.value = v || ''; };
+    if (s) { set('mc-date', fmtBE(s.gradDate)); set('mc-gpa', s.gpa); set('mc-pp1s', s.pp1Set); set('mc-pp1n', s.pp1No); if (!$('#mc-sid').value) set('mc-sid', s.sid); if (!$('#mc-cid').value) set('mc-cid', s.cid); }
+    else { ['mc-gpa', 'mc-pp1s', 'mc-pp1n'].forEach(id => set(id, '')); }
+    const h = $('#mc-lvhint'); if (h) h.textContent = s ? `เติมข้อมูล ${s.level} จากฐานข้อมูลแล้ว: จบ ${fmtBE(s.gradDate)} · เกรดเฉลี่ย ${s.gpa || '-'} · ${pp1Text(s) || 'ยังไม่มีเลข ปพ.1'}` : `ไม่มีข้อมูล ${el.value || ''} ของผู้นี้ในฐานข้อมูล · กรอกวันที่จบ เกรดเฉลี่ย และชุด/เลขที่ ปพ.1 ตามหลักฐาน`;
+  },
   gdyear: el => { U.gyear = el.value; $('#gd-table').innerHTML = gradsTable(); },
   feonly: el => { U.fOnly = el.checked; $('#fe-table').innerHTML = feesTable(); },
   pp3file: el => { const f = el.files[0]; const m = f && f.name.match(/PP3-\d{4}-(\d)/i); if (m && (m[1] === '3' || m[1] === '6')) $('#gd-level').value = 'ม.' + m[1]; },

@@ -819,3 +819,5 @@ input[type=radio],input[type=checkbox]{accent-color:var(--primary)}
 /* เลขขั้นตอนในเมนู */
 .nav-n{width:20px;height:20px;border-radius:50%;display:inline-grid;place-items:center;font-size:11.5px;font-weight:700;border:1.5px solid var(--outline);color:var(--muted);flex:none}
 .nav button.on .nav-n{background:var(--primary);border-color:var(--primary);color:var(--primary-ink)}
+/* เลือกระดับชั้นที่จบในแถวตรวจสอบ */
+.lv-sel{width:auto;display:inline-block;padding:1px 22px 1px 6px;font-size:12.5px;border-radius:var(--r-sm);vertical-align:baseline;background-position:right 4px center}
