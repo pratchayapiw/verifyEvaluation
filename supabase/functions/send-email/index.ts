@@ -80,7 +80,10 @@ Deno.serve(async (req) => {
       last = r;
       console.error('gas_not_json', { url, status: r.status, finalUrl: r.finalUrl, login: r.login, snippet: r.snippet });
     }
-    const err = last?.login
+    const gone = last?.status === 404 || /does not exist|ไม่มีอยู่/i.test(last?.snippet || '');
+    const err = gone
+      ? 'ไม่พบ Web app ของ Apps Script ตามลิงก์ GAS_URL (Google ตอบว่าไม่มีไฟล์นี้) · มักเกิดจากการ Deploy ถูกลบ/เปลี่ยนเวอร์ชัน หรือจำกัดสิทธิ์ไว้เฉพาะคนในโรงเรียน · แก้: เปิด Apps Script → Deploy → New deployment → Web app → Execute as: Me · Who has access: Anyone → Deploy แล้วนำ Web app URL ใหม่ (ลงท้าย /exec) ไปใส่ใน Secret GAS_URL'
+      : last?.login
       ? 'Apps Script ต้องล็อกอิน Google ก่อน จึงส่งอีเมลจากระบบไม่ได้ · แก้: เปิด Apps Script → Deploy → Manage deployments → แก้ไข (ไอคอนดินสอ) → Who has access เลือก "Anyone" → Deploy แล้วคัดลอก URL ใหม่ (แบบ https://script.google.com/macros/s/…/exec) ไปใส่ใน Secret GAS_URL'
       : `Apps Script ตอบกลับไม่ถูกต้อง (HTTP ${last?.status}) · ตรวจว่า GAS_URL เป็น Web app URL ที่ลงท้ายด้วย /exec และ Deploy เป็น Web app แล้ว`;
     return json({ ok: false, error: err, detail: last?.snippet }, 502);
