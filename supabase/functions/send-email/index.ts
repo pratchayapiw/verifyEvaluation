@@ -1,5 +1,6 @@
 // send-email: ส่งอีเมลจากระบบผ่าน Google Apps Script (เฉพาะเจ้าหน้าที่ที่อนุมัติแล้ว)
-// Secrets ที่ต้องมี: GAS_URL (Web app URL ลงท้าย /exec) และ GAS_KEY (ตรงกับ Script property KEY)
+// ลิงก์ Apps Script: ใช้ค่าในหน้าตั้งค่าของระบบ (settings.gasUrl) ก่อน แล้วสำรองด้วย Secret GAS_URL
+// Secret ที่ต้องมี: GAS_KEY (ตรงกับ Script property KEY ใน Apps Script)
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
 const cors = {
@@ -51,9 +52,14 @@ Deno.serve(async (req) => {
     }
 
     // 3) ค่าตั้งค่า
-    const gasUrl = (Deno.env.get('GAS_URL') || '').trim();
+    const { data: st } = await supabase.from('settings').select('data').eq('id', 1).maybeSingle();
+    const okUrl = (u: unknown) => typeof u === 'string' && /^https:\/\/script\.google\.com\/(a\/macros\/[^/]+\/s|macros\/s)\/[\w-]+\/exec$/.test(u.trim());
+    const fromSettings = okUrl(st?.data?.gasUrl) ? String(st!.data.gasUrl).trim() : '';
+    const fromSecret = (Deno.env.get('GAS_URL') || '').trim();
+    const urls = [...new Set([fromSettings, fromSecret].filter(Boolean).flatMap(variants))];
+    const gasUrl = urls[0] || '';
     const gasKey = Deno.env.get('GAS_KEY') || '';
-    if (!gasUrl) return json({ ok: false, error: 'ยังไม่ได้ตั้งค่า GAS_URL ใน Supabase › Edge Functions › Secrets' }, 500);
+    if (!gasUrl) return json({ ok: false, error: 'ยังไม่ได้ใส่ลิงก์ Apps Script ในหน้าตั้งค่า › บริการส่งอีเมล' }, 500);
     if (!gasKey) return json({ ok: false, error: 'ยังไม่ได้ตั้งค่า GAS_KEY ใน Supabase › Edge Functions › Secrets' }, 500);
 
     const body = await req.json();
@@ -62,11 +68,11 @@ Deno.serve(async (req) => {
 
     // 4) ส่งต่อไป Apps Script
     let last: Awaited<ReturnType<typeof callGas>> | null = null;
-    for (const url of variants(gasUrl)) {
+    for (const url of urls) {
       const r = await callGas(url, { ...body, key: gasKey });
       if (r.json) {
         if (r.json.ok) {
-          console.log('sent', { to: body.to, subject: String(body.subject || '').slice(0, 80), size, via: url === gasUrl ? 'original' : 'generic' });
+          console.log('sent', { to: body.to, subject: String(body.subject || '').slice(0, 80), size, via: url });
           return json({ ok: true });
         }
         console.error('gas_error', { error: r.json.error, to: body.to, size });
@@ -82,9 +88,9 @@ Deno.serve(async (req) => {
     }
     const gone = last?.status === 404 || /does not exist|ไม่มีอยู่/i.test(last?.snippet || '');
     const err = gone
-      ? 'ไม่พบ Web app ของ Apps Script ตามลิงก์ GAS_URL (Google ตอบว่าไม่มีไฟล์นี้) · มักเกิดจากการ Deploy ถูกลบ/เปลี่ยนเวอร์ชัน หรือจำกัดสิทธิ์ไว้เฉพาะคนในโรงเรียน · แก้: เปิด Apps Script → Deploy → New deployment → Web app → Execute as: Me · Who has access: Anyone → Deploy แล้วนำ Web app URL ใหม่ (ลงท้าย /exec) ไปใส่ใน Secret GAS_URL'
+      ? 'ไม่พบ Web app ของ Apps Script ตามลิงก์ที่ตั้งไว้ (Google ตอบว่าไม่มีไฟล์นี้) · มักเกิดจากการ Deploy ถูกลบ/เปลี่ยนเวอร์ชัน หรือจำกัดสิทธิ์ไว้เฉพาะคนในโรงเรียน · แก้: เปิด Apps Script → Deploy → New deployment → Web app → Execute as: Me · Who has access: Anyone → Deploy แล้วนำ Web app URL ใหม่ (ลงท้าย /exec) ไปใส่ในหน้าตั้งค่า › บริการส่งอีเมล แล้วกดบันทึก'
       : last?.login
-      ? 'Apps Script ต้องล็อกอิน Google ก่อน จึงส่งอีเมลจากระบบไม่ได้ · แก้: เปิด Apps Script → Deploy → Manage deployments → แก้ไข (ไอคอนดินสอ) → Who has access เลือก "Anyone" → Deploy แล้วคัดลอก URL ใหม่ (แบบ https://script.google.com/macros/s/…/exec) ไปใส่ใน Secret GAS_URL'
+      ? 'Apps Script ต้องล็อกอิน Google ก่อน จึงส่งอีเมลจากระบบไม่ได้ · แก้: เปิด Apps Script → Deploy → Manage deployments → แก้ไข (ไอคอนดินสอ) → Who has access เลือก "Anyone" → Deploy แล้วคัดลอก URL ใหม่ (แบบ https://script.google.com/macros/s/…/exec) ไปใส่ในหน้าตั้งค่า › บริการส่งอีเมล แล้วกดบันทึก'
       : `Apps Script ตอบกลับไม่ถูกต้อง (HTTP ${last?.status}) · ตรวจว่า GAS_URL เป็น Web app URL ที่ลงท้ายด้วย /exec และ Deploy เป็น Web app แล้ว`;
     return json({ ok: false, error: err, detail: last?.snippet }, 502);
   } catch (err) {
