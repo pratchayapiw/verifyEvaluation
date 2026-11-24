@@ -799,3 +799,23 @@ input[type=radio],input[type=checkbox]{accent-color:var(--primary)}
 .pw-eye:focus-visible{outline:2px solid var(--ring);outline-offset:1px}
 .pw-eye[aria-pressed="true"]{color:var(--primary)}
 .forgot-link{justify-self:end;font-size:14px;margin-top:-4px}
+
+/* ภาพรวมขั้นตอนงาน (หน้าหลัก) */
+.wflow{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:0;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow-sm);overflow:hidden}
+.wf-st{position:relative;display:grid;gap:2px;align-content:start;text-align:left;border:0;border-left:1px solid var(--line-2);background:transparent;font:inherit;color:inherit;padding:16px 20px 18px 20px;cursor:pointer;transition:background-color .15s}
+.wf-st:first-child{border-left:0}
+.wf-st:hover{background:var(--gold-soft)}
+.wf-st:not(:last-child):after{content:"";position:absolute;right:-7px;top:26px;width:12px;height:12px;background:var(--surface);border-top:1px solid var(--line);border-right:1px solid var(--line);transform:rotate(45deg);z-index:1}
+.wf-st:hover:after{background:var(--gold-soft)}
+.wf-n{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font-size:13px;font-weight:700;background:var(--surface2);border:1.5px solid var(--outline);color:var(--muted);margin-bottom:6px}
+.wf-st.on .wf-n{background:var(--primary);border-color:var(--primary);color:var(--primary-ink)}
+.wf-t{font-weight:600;font-size:14.5px}
+.wf-num{font-family:var(--f-head);font-size:30px;font-weight:700;line-height:1.2;color:var(--navy);font-variant-numeric:tabular-nums}
+.wf-num small{font-family:var(--f-ui);font-size:13px;font-weight:500;color:var(--muted);margin-left:6px}
+.wf-sub{font-size:13px;color:var(--muted)}
+.wf-st .badge{position:absolute;right:16px;top:16px}
+.wf-st:focus-visible{outline:2px solid var(--ring);outline-offset:-2px}
+@media (max-width:860px){.wflow{grid-template-columns:repeat(2,minmax(0,1fr))}.wf-st:after{display:none}.wf-st:nth-child(3){border-left:0}.wf-st:nth-child(n+3){border-top:1px solid var(--line-2)}}
+/* เลขขั้นตอนในเมนู */
+.nav-n{width:20px;height:20px;border-radius:50%;display:inline-grid;place-items:center;font-size:11.5px;font-weight:700;border:1.5px solid var(--outline);color:var(--muted);flex:none}
+.nav button.on .nav-n{background:var(--primary);border-color:var(--primary);color:var(--primary-ink)}

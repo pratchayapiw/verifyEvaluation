@@ -1,6 +1,6 @@
 /* WNM-Educational Measurement and Evaluation Section Ver.1 — ระบบรับ–ส่งและตรวจสอบวุฒิการศึกษา (Prototype, เก็บข้อมูลในเบราว์เซอร์) */
 /* รุ่นของระบบ — release.py ปรับให้อัตโนมัติทุกครั้งที่ปรับปรุง ห้ามแก้ด้วยมือ */
-const APP_VERSION = { no: 'Ver.34', at: '24/11/2569 09:05' };
+const APP_VERSION = { no: 'Ver.35', at: '24/11/2569 09:10' };
 'use strict';
 
 /* ---------- ค่าคงที่ ---------- */
@@ -902,6 +902,19 @@ function onlineInbox() {
 }
 
 /* ---------- ส่วนประกอบ ---------- */
+/* ภาพรวมขั้นตอนงาน: รับ → ตรวจ → ตอบ → ส่งแล้ว · กดที่ขั้นเพื่อไปหน้านั้น */
+function flowOverview(R, inbox) {
+  const open = R.filter(r => r.status !== 'replied'), overIn = list => list.filter(r => ageOf(r).over).length;
+  const chk = open.filter(r => registered(r) && ['received', 'checking'].includes(r.status) && !(routeOn() && inRoute(r)));
+  const out = open.filter(r => r.status === 'done'), noLetter = out.filter(r => !r.outNo).length, sent = R.filter(r => r.status === 'replied').length;
+  const st = (n, v, title, num, unit, sub, warn, on) => `<button type="button" class="wf-st ${on ? 'on' : ''}" data-act="${v === 'rtinbox' ? 'rtinbox' : 'go'}" data-v="${v}"><span class="wf-n">${n}</span><span class="wf-t">${title}</span><span class="wf-num">${num}<small>${unit}</small></span><span class="wf-sub">${sub}</span>${warn ? `<span class="badge danger">${warn}</span>` : ''}</button>`;
+  return `<nav class="wflow" aria-label="ภาพรวมขั้นตอนงาน">
+    ${st(1, inbox ? 'rtinbox' : 'receive', 'รับหนังสือ', inbox, 'ฉบับ', inbox ? 'หนังสือออนไลน์รอดำเนินการ' : 'ไม่มีหนังสือค้างรับ · บันทึกรับหนังสือใหม่', '', inbox > 0)}
+    ${st(2, 'verify', 'ตรวจสอบรายชื่อ', chk.length, 'ฉบับ', chk.length ? `รอยืนยันผล ${chk.reduce((a, r) => a + r.persons.filter(unconf).length, 0)} ราย` : 'ไม่มีงานค้างตรวจ', overIn(chk) ? `เกินกำหนด ${overIn(chk)}` : '', chk.length > 0)}
+    ${st(3, 'outgoing', 'หนังสือตอบ / ส่งออก', out.length, 'ฉบับ', out.length ? `รอสร้างหนังสือ ${noLetter} · รอส่ง ${out.length - noLetter}` : 'ไม่มีหนังสือรอส่ง', overIn(out) ? `เกินกำหนด ${overIn(out)}` : '', out.length > 0)}
+    ${st('✓', 'track', 'ส่งหนังสือตอบแล้ว', sent, 'ฉบับ', `จากหนังสือรับทั้งหมด ${R.length} ฉบับ`, '', false)}
+  </nav>`;
+}
 function stat(label, n, unit, color) {
   return `<div class="lc" style="--accent:${color}"><span class="lc-label">${label}</span><div class="lc-num">${n}${unit ? `<span class="unit">${unit}</span>` : ''}</div></div>`;
 }
@@ -946,9 +959,8 @@ function vDash() {
   const done = R.filter(r => r.status === 'replied' && r.sentDate), avg = done.length ? (done.reduce((a, r) => a + ageOf(r).d, 0) / done.length) : null;
   const pendAg = (S.agencies || []).filter(x => !x.approved).length;
   return `
-  <div class="pagehead between wrap"><div><h1>งานตรวจสอบวุฒิการศึกษา</h1><p class="muted">ข้อมูล ณ ${fmtLong(todayISO())} · กำหนดตอบภายใน ${slaDays()} วันนับจากวันที่รับ</p></div>
-  <div class="row"><button type="button" class="btn btn-primary" data-act="go" data-v="receive">${ic('inbox')} รับหนังสือ${inbox ? ` <span class="pill">${inbox} ออนไลน์</span>` : ''}</button><button type="button" class="btn btn-outline" data-act="go" data-v="outgoing">${ic('send')} หนังสือส่งออก</button></div></div>
-  <div class="ledger">${stat('หนังสือรับทั้งหมด', R.length, 'ฉบับ', 'var(--primary)')}${stat('อยู่ระหว่างดำเนินการ', open.length, 'ฉบับ', 'var(--gold)')}${stat('เกินกำหนดตอบ', over, 'ฉบับ', over ? 'var(--red)' : 'var(--outline)')}${stat('ส่งหนังสือตอบแล้ว', R.length - open.length, 'ฉบับ', 'var(--green)')}${stat('เวลาตอบเฉลี่ย', avg == null ? '–' : avg.toFixed(1), avg == null ? '' : 'วัน', 'var(--blue)')}</div>
+  <div class="pagehead"><h1>งานตรวจสอบวุฒิการศึกษา</h1><p class="muted">ข้อมูล ณ ${fmtLong(todayISO())} · กำหนดตอบภายใน ${slaDays()} วันนับจากวันที่รับ${over ? ` · <b style="color:var(--danger-fg)">เกินกำหนดตอบ ${over} ฉบับ</b>` : ''}${avg != null ? ` · ใช้เวลาเฉลี่ย ${avg.toFixed(1)} วัน` : ''}</p></div>
+  ${flowOverview(R, inbox)}
   ${certOn() && isRegistrar() && waitCert().length ? `<div class="notice warn row">📝 หนังสือแจ้งผลรอนายทะเบียนตรวจสอบและรับรอง ${waitCert().length} ฉบับ: ${waitCert().slice(0, 3).map(r => `<button type="button" class="btn btn-outline sm" data-act="letter" data-id="${r.id}">เลขรับ ${esc(r.regNo || '-')} · ${esc(r.agency)}</button>`).join(' ')}</div>` : ''}
   ${routeOn() && isClerk() && waitClerk().length ? `<div class="notice warn row">📥 หนังสือเข้าออนไลน์รองานธุรการลงทะเบียนรับ ${waitClerk().length} ฉบับ <button type="button" class="btn btn-outline sm" data-act="rtinbox">ลงทะเบียนรับ</button></div>` : ''}
   ${routeOn() && waitBack().length ? `<div class="notice info row">📬 งานธุรการลงรับแล้ว รอเสนอผู้อำนวยการทราบและรับหนังสือคืน ${waitBack().length} ฉบับ <button type="button" class="btn btn-outline sm" data-act="rtinbox">ดูหนังสือ</button></div>` : ''}
@@ -956,7 +968,7 @@ function vDash() {
   <div class="grid g-main">
     <section class="card"><div class="between"><div><h2 style="margin:0">งานที่ต้องทำต่อ</h2><p class="muted small" style="margin:2px 0 0">เรียงตามความเร่งด่วน: เกินกำหนด › คำขอใหม่ › รอตรวจ › รอออกหนังสือ</p></div><button type="button" class="btn btn-outline sm" data-act="go" data-v="track">ดูทั้งหมด</button></div>${workQueue()}</section>
     <div class="stack">
-      <section class="card"><h2>ผลการตรวจสอบรายบุคคล</h2><div class="bars">${['found', 'mismatch', 'notfound', 'pending'].map(k => bar(RESULT[k].t, cnt(k), max, k)).join('')}</div><p class="muted small" style="margin:0">รวม ${persons.length} ราย จาก ${R.length} หนังสือ · ฐานข้อมูลผู้สำเร็จ ${S.students.length.toLocaleString('th-TH')} ราย</p></section>
+      <section class="card" hidden><h2>ผลการตรวจสอบรายบุคคล</h2><div class="bars">${['found', 'mismatch', 'notfound', 'pending'].map(k => bar(RESULT[k].t, cnt(k), max, k)).join('')}</div><p class="muted small" style="margin:0">รวม ${persons.length} ราย จาก ${R.length} หนังสือ · ฐานข้อมูลผู้สำเร็จ ${S.students.length.toLocaleString('th-TH')} ราย</p></section>
       <section class="card fee-card"><div class="between"><h2 style="margin:0">ค่าบำรุงการศึกษาค้างชำระ</h2><span class="badge neutral">${ic('lock')} เฉพาะเจ้าหน้าที่</span></div><div class="fee-num">฿${money(totalOutstanding())}</div><div class="between"><span class="muted small">${debtors} ราย · ไม่แสดงต่อหน่วยงานภายนอก</span><button type="button" class="btn btn-outline sm" data-act="go" data-v="fees">จัดการ</button></div></section>
       <section class="card"><h2>ความเคลื่อนไหวล่าสุด</h2>${recentActivity()}</section>
     </div>
@@ -971,7 +983,7 @@ function vReceive() {
   return `<div class="pagehead"><h1>รับหนังสือขอตรวจสอบวุฒิ</h1><p class="muted">ขั้นตอนที่ 1 · ลงทะเบียนรับหนังสือจากหน่วยงาน แล้วระบุรายชื่อผู้ที่ขอให้ตรวจสอบ</p></div>
   ${tabsBar('rtab', [['form', d.editingId ? '✏️ แก้ไขข้อมูลรับหนังสือ' : '📝 บันทึกรับหนังสือ'], ['inbox', routeOn() ? '📨 หนังสือออนไลน์ (ผ่านงานธุรการ)' : '📨 คำขอออนไลน์ (รอลงเลขรับ)', inbox ? { n: inbox, cls: 'hot' } : null], ['register', '📥 ทะเบียนหนังสือรับ', { n: nReg }]])}
   <div class="stack" ${tp('rtab', 'form', 'form')}>
-  ${inbox && !d.editingId ? `<div class="notice warn row" style="margin:0">📨 มีหนังสือจากระบบออนไลน์ (รับอัตโนมัติแล้ว) ${routeOn() ? 'รอดำเนินการขั้นตอนรับผ่านงานธุรการ' : 'รอลงเลขทะเบียนรับ'} ${inbox} รายการ <button type="button" class="btn btn-outline sm" data-act="tab" data-k="rtab" data-v="inbox">ดูคำขอ</button></div>` : ''}
+  ${false && inbox && !d.editingId ? `<div class="notice warn row" style="margin:0">📨 มีหนังสือจากระบบออนไลน์ (รับอัตโนมัติแล้ว) ${routeOn() ? 'รอดำเนินการขั้นตอนรับผ่านงานธุรการ' : 'รอลงเลขทะเบียนรับ'} ${inbox} รายการ <button type="button" class="btn btn-outline sm" data-act="tab" data-k="rtab" data-v="inbox">ดูคำขอ</button></div>` : ''}
   ${scanCard('staff')}
   <form class="card form ${d.editingId ? 'editing' : ''}" data-form="receive" id="rc-form" novalidate>
     ${d.editingId ? `<div class="notice warn between wrap" style="margin:0"><span>✏️ กำลังแก้ไขข้อมูลรับหนังสือ เลขรับ <b>${esc((getReq(d.editingId) || {}).regNo || '')}</b> · ผลการตรวจสอบของรายที่ไม่เปลี่ยนข้อมูลจะคงไว้</span><button type="button" class="btn btn-outline sm" data-act="canceledit">ยกเลิกการแก้ไข</button></div>` : ''}
@@ -1041,7 +1053,13 @@ function vVerify() {
   const r = getReq(U.reqId);
   return `<div class="pagehead"><h1>ตรวจสอบและบันทึกผลรายบุคคล</h1><p class="muted">ขั้นตอนที่ 2 · เทียบรายชื่อในหนังสือกับฐานข้อมูลผู้สำเร็จการศึกษา แล้วยืนยันผลทีละราย</p></div>
   <div class="card"><div><label for="vf-req">เลือกหนังสือที่จะตรวจสอบ</label><select id="vf-req" data-ch="vfreq"><option value="">— เลือกหนังสือ —</option>${opts}</select></div><div style="margin-top:12px"><label for="vf-q">ค้นหาผู้สำเร็จการศึกษาในฐานข้อมูล</label><input id="vf-q" data-in="vfq" value="${esc(U.vq)}" placeholder="รหัส / เลขบัตร / ชื่อ-สกุล / ระดับชั้น / วันที่จบ / GPA / ปพ.1 ชุดที่-เลขที่ / ค้างชำระ"></div><div id="vf-quick">${quickResults()}</div></div>
-  ${r ? verifyPanel(r) : `<div class="card empty">เลือกหนังสือจากรายการด้านบนเพื่อเริ่มตรวจสอบ</div>`}`;
+  ${r ? verifyPanel(r) : verifyPick()}`;
+}
+/* ยังไม่เลือกหนังสือ: รายการหนังสือที่ต้องตรวจ เรียงตามความเร่งด่วน */
+function verifyPick() {
+  const list = REQS().filter(r => r.status !== 'replied' && registered(r) && r.persons.some(unconf)).sort((a, b) => (ageOf(b).over - ageOf(a).over) || (a.recvDate || '').localeCompare(b.recvDate || ''));
+  if (!list.length) return `<div class="card empty">${ic('check')} ไม่มีหนังสือค้างตรวจ · เลือกหนังสือจากรายการด้านบนเพื่อดูหรือแก้ผลการตรวจ</div>`;
+  return `<div class="card"><h2>หนังสือที่รอตรวจ (${list.length})</h2><ul class="queue">${list.map(r => { const a = ageOf(r), n = r.persons.filter(unconf).length; return `<li class="q-item ${a.over ? 'is-over' : ''}"><div class="q-main"><div class="q-top"><b class="q-reg">${regLbl(r)}</b>${ageChip(r)}</div><div class="q-agency">${esc(r.agency)}</div><div class="q-next">รอยืนยันผล ${n} จาก ${r.persons.length} ราย</div></div><button type="button" class="btn btn-primary sm" data-act="openverify" data-id="${r.id}">ตรวจ</button></li>`; }).join('')}</ul></div>`;
 }
 const DEBT_NOTE_DEFAULT = 'ติดต่อสถาบันเดิมโดยด่วน';
 const debtNote = () => (S.settings.debtNote || '').trim() || DEBT_NOTE_DEFAULT;
@@ -3097,9 +3115,9 @@ function importRegister(rows) {
 }
 const regMsg = x => `นำเข้าหนังสือรับทั้งหมด <b>${x.total}</b> ฉบับ · เพิ่มใหม่ ${x.added} · อัปเดตฉบับเดิม ${x.updated}${x.dupInFile ? ` · แถวซ้ำในไฟล์ ${x.dupInFile} (ใช้แถวล่าสุด)` : ''}${x.skipped ? ` · ข้ามแถวว่าง/หมายเหตุ ${x.skipped} แถว` : ''}<br>ขั้นต่อไป: เปิดหนังสือแต่ละฉบับแล้วกด "แก้ไขข้อมูลรับหนังสือ" เพื่อเพิ่มรายชื่อผู้ขอตรวจสอบ (เพิ่มไฟล์บัญชีรายชื่อให้ระบบอ่านได้)`;
 function regImportCard() {
-  return `<div class="card"><div class="between wrap"><div><h2 style="margin:0">📁 นำเข้าทะเบียนหนังสือรับจากไฟล์ Excel</h2><p class="muted small" style="margin:4px 0 0">เพิ่มหนังสือรับหลายฉบับพร้อมกัน · คอลัมน์: เลขรับ, วันที่รับหนังสือ, เลขที่หนังสือ, เรียน (ตำแหน่ง สถาบัน), ลงวันที่, ที่อยู่หน่วยงาน, อีเมล, ช่องทางส่งตอบกลับ, กำหนดส่ง, โทรศัพท์ · หนังสือซ้ำ (เลขที่หนังสือและหน่วยงานเดียวกัน) ยึดข้อมูลล่าสุด</p></div><button type="button" class="btn btn-outline sm" data-act="regtemplate">ดาวน์โหลดแบบฟอร์มเปล่า</button></div>
+  return `<details class="card imp-card" data-sec="regimp" ${(U.secOpen && 'regimp' in U.secOpen ? U.secOpen.regimp : !REQS().length || U.regMsg) ? 'open' : ''}><summary><span><b>📁 นำเข้าทะเบียนหนังสือรับจากไฟล์ Excel</b><span class="muted small"> · เพิ่มหลายฉบับพร้อมกัน</span></span></summary><div class="between wrap" style="margin-top:10px"><div><p class="muted small" style="margin:4px 0 0">เพิ่มหนังสือรับหลายฉบับพร้อมกัน · คอลัมน์: เลขรับ, วันที่รับหนังสือ, เลขที่หนังสือ, เรียน (ตำแหน่ง สถาบัน), ลงวันที่, ที่อยู่หน่วยงาน, อีเมล, ช่องทางส่งตอบกลับ, กำหนดส่ง, โทรศัพท์ · หนังสือซ้ำ (เลขที่หนังสือและหน่วยงานเดียวกัน) ยึดข้อมูลล่าสุด</p></div><button type="button" class="btn btn-outline sm" data-act="regtemplate">ดาวน์โหลดแบบฟอร์มเปล่า</button></div>
   <div class="row" style="margin-top:12px"><label class="btn btn-primary file-btn">📁 เลือกไฟล์ทะเบียนหนังสือรับ (.xlsx / .csv)<input type="file" class="vh" accept=".xlsx,.xls,.csv" data-ch="regimport"></label></div>
-  <div id="reg-msg" style="margin-top:10px">${U.regMsg ? `<p class="notice ok" style="margin:0">${U.regMsg}</p>` : ''}</div></div>`;
+  <div id="reg-msg" style="margin-top:10px">${U.regMsg ? `<p class="notice ok" style="margin:0">${U.regMsg}</p>` : ''}</div></details>`;
 }
 
 /* ---------- ตรวจสอบเองโดยเจ้าหน้าที่ (กรณีไม่พบในฐานข้อมูล) ----------
@@ -3331,7 +3349,7 @@ async function stampPDF(r) {
 
 const VIEW_FN = { dash: vDash, receive: vReceive, outgoing: vOutgoing, verify: vVerify, grads: vGrads, fees: vFees, track: vTrack, reports: vReports, settings: vSettings };
 function topBar() {
-  if (U.mode === 'staff' && U.staffAuth) return `${CLOUD ? syncChip() : ''}<button type="button" class="seg-search" data-act="gsopen" aria-label="ค้นหาทั้งระบบ (Ctrl K)">${ic('search')} ค้นหา <kbd>Ctrl K</kbd></button><span class="who">🧑‍💼 ${esc(CLOUD && U.me ? U.me.email : 'เจ้าหน้าที่')}</span><button type="button" data-act="home">หน้าแรก</button><button type="button" data-act="logout">ออกจากระบบ</button>`;
+  if (U.mode === 'staff' && U.staffAuth) return `${CLOUD ? syncChip() : ''}<button type="button" class="seg-search" data-act="gsopen" aria-label="ค้นหาทั้งระบบ (Ctrl K)">${ic('search')} ค้นหา <kbd>Ctrl K</kbd></button><span class="who">🧑‍💼 ${esc(CLOUD && U.me ? U.me.email : 'เจ้าหน้าที่')}</span><button type="button" data-act="logout">ออกจากระบบ</button>`;
   const acc = curAgency();
   if (U.mode === 'agency' && acc) return `<span class="who">🏢 ${esc(acc.name)}</span><button type="button" data-act="logout">ออกจากระบบ</button>`;
   return U.mode === 'home' ? `<button type="button" data-act="role" data-r="staff">เจ้าหน้าที่</button><button type="button" data-act="role" data-r="agency">หน่วยงานภายนอก</button>` : `<button type="button" data-act="home">← หน้าแรก</button>`;
@@ -3341,7 +3359,7 @@ function render() {
   $('#modeSeg').innerHTML = topBar();
   const nav = $('#nav'), acc = curAgency();
   let items = '';
-  if (U.mode === 'staff' && U.staffAuth) { autoReceive(); const n = rcvTodo(); items = VIEWS.map(([k, t, step]) => `${NAV_SEP_BEFORE.includes(k) ? '<span class="nav-sep" aria-hidden="true"></span>' : ''}<button type="button" class="${U.view === k || NAV_GROUP[U.view] === k ? 'on' : ''}" data-act="go" data-v="${k}" title="${step ? 'ขั้นตอนที่ ' + step : ''}">${t}${k === 'receive' && n ? ` <span class="badge danger">${n}</span>` : ''}${k === 'outgoing' && certOn() && isRegistrar() && waitCert().length ? ` <span class="badge warn" title="รอนายทะเบียนรับรอง">${waitCert().length}</span>` : ''}</button>`).join(''); }
+  if (U.mode === 'staff' && U.staffAuth) { autoReceive(); const n = rcvTodo(); items = VIEWS.map(([k, t, step]) => `${NAV_SEP_BEFORE.includes(k) ? '<span class="nav-sep" aria-hidden="true"></span>' : ''}<button type="button" class="${U.view === k || NAV_GROUP[U.view] === k ? 'on' : ''}" data-act="go" data-v="${k}" title="${step ? 'ขั้นตอนที่ ' + step : ''}">${step ? `<span class="nav-n" aria-hidden="true">${step}</span>${stripEmoji(t)}` : t}${k === 'receive' && n ? ` <span class="badge danger">${n}</span>` : ''}${k === 'outgoing' && certOn() && isRegistrar() && waitCert().length ? ` <span class="badge warn" title="รอนายทะเบียนรับรอง">${waitCert().length}</span>` : ''}</button>`).join(''); }
   else if (U.mode === 'agency' && acc) { const un = agencyEvents(acc).filter(x => x.e.t > (acc.lastSeen || 0)).length; items = AVIEWS.map(([k, t]) => `<button type="button" class="${U.aView === k || (k === 'status' && U.aView === 'detail') ? 'on' : ''}" data-act="ago" data-v="${k}">${t}${k === 'home' && un ? ` <span class="badge danger">${un}</span>` : ''}</button>`).join(''); }
   nav.hidden = !items; nav.innerHTML = items;
   const nb = $('.navbar'); if (nb) nb.hidden = !items;
