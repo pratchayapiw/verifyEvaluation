@@ -1,6 +1,6 @@
 /* WNM-Educational Measurement and Evaluation Section Ver.1 — ระบบรับ–ส่งและตรวจสอบวุฒิการศึกษา (Prototype, เก็บข้อมูลในเบราว์เซอร์) */
 /* รุ่นของระบบ — release.py ปรับให้อัตโนมัติทุกครั้งที่ปรับปรุง ห้ามแก้ด้วยมือ */
-const APP_VERSION = { no: 'Ver.33', at: '05/11/2569 13:36' };
+const APP_VERSION = { no: 'Ver.34', at: '24/11/2569 09:05' };
 'use strict';
 
 /* ---------- ค่าคงที่ ---------- */
@@ -469,7 +469,7 @@ if (!CLOUD) migrateState();
 const U = {
   mode: /^#staff$/.test(location.hash) ? 'staff' : /^#(agency|portal)$/.test(location.hash) ? 'agency' : 'home',
   view: 'dash', reqId: null, trackId: null, letterId: null,
-  gq: '', glevel: '', fq: '', fOnly: true, tq: '', vq: '', showAdd: false,
+  gq: '', glevel: '', gyear: '', fq: '', fOnly: true, tq: '', vq: '', showAdd: false,
   draft: newDraft(), lastImport: '',
   staffAuth: false, agencyId: null, aView: 'home', aTab: 'login', aReqId: null, adraft: null, returnId: null, authErr: ''
 };
@@ -1140,12 +1140,22 @@ function stuMatch(s, q) {
   if (toks.length > 1 && hay.includes(sNorm(q))) return true;
   return toks.every(t => { const n = sNorm(t); if (hay.includes(n)) return true; const d = digits(t); return d.length >= 3 && d === n && (sidKey(s.sid).startsWith(sidKey(d)) || (d.length >= 4 && String(s.cid || '').includes(d))); });
 }
+/* ปีที่จบ (พ.ศ.) จากวันที่อนุมัติจบในฐานข้อมูล · ใช้กรองรายชื่อทีละรุ่น */
+const stuYear = s => (s.gradDate ? +s.gradDate.slice(0, 4) + 543 : 0);
+const yearOk = s => !U.gyear || (U.gyear === 'none' ? !stuYear(s) : stuYear(s) === +U.gyear);
+function yearOptions() {
+  const cnt = new Map(); let none = 0;
+  S.students.forEach(s => { const y = stuYear(s); if (y) cnt.set(y, (cnt.get(y) || 0) + 1); else none++; });
+  if (U.gyear && U.gyear !== 'none' && !cnt.has(+U.gyear)) U.gyear = '';
+  const ys = [...cnt.keys()].sort((a, b) => b - a);
+  return `<option value="">ทุกปีที่จบ</option>${ys.map(y => `<option value="${y}" ${String(y) === String(U.gyear) ? 'selected' : ''}>จบปี พ.ศ. ${y} (${cnt.get(y).toLocaleString('th-TH')} ราย)</option>`).join('')}${none ? `<option value="none" ${U.gyear === 'none' ? 'selected' : ''}>ไม่ระบุปีที่จบ (${none.toLocaleString('th-TH')} ราย)</option>` : ''}`;
+}
 function gradsTable() {
   const q = U.gq.trim(), qd = digits(q), qn = normName(q);
-  const list = S.students.filter(s => (!U.glevel || s.level === U.glevel) && (!q || stuMatch(s, q)))
+  const list = S.students.filter(s => (!U.glevel || s.level === U.glevel) && yearOk(s) && (!q || stuMatch(s, q)))
     .sort((a, b) => (b.gradDate || '').localeCompare(a.gradDate || '') || a.sid.localeCompare(b.sid));
-  const shown = list.slice(0, 300);
-  return `<p class="muted small">แสดง ${shown.length.toLocaleString('th-TH')} จาก ${list.length.toLocaleString('th-TH')} ราย${list.length > 300 ? ' (พิมพ์ค้นหาเพื่อกรอง)' : ''}</p>
+  const cap = U.gyear ? 3000 : 300, shown = list.slice(0, cap);
+  return `<p class="muted small">แสดง ${shown.length.toLocaleString('th-TH')} จาก ${list.length.toLocaleString('th-TH')} ราย${U.gyear ? ` · ${U.gyear === 'none' ? 'ไม่ระบุปีที่จบ' : 'จบปี พ.ศ. ' + U.gyear}${U.glevel ? ' ระดับ ' + U.glevel : ''}` : ''}${list.length > cap ? ' (เลือกปีที่จบหรือพิมพ์ค้นหาเพื่อกรอง)' : ''}</p>
   <div class="tablewrap"><table><thead><tr><th>รหัสประจำตัว</th><th>เลขบัตรประชาชน</th><th>ชื่อ-สกุล</th><th>ระดับชั้น</th><th>วันที่จบ</th><th>GPA</th><th>ปพ.1 ชุดที่/เลขที่</th><th>ค้างชำระ</th><th></th></tr></thead><tbody>
   ${shown.map(s => { const o = outstanding(s.id); return `<tr><td><b>${esc(s.sid || '-')}</b></td><td>${esc(maskCid(s.cid))}</td><td>${esc(fullName(s))}${s.father || s.mother ? `<div class="sub">${s.father ? 'บิดา ' + esc(s.father) : ''}${s.father && s.mother ? ' · ' : ''}${s.mother ? 'มารดา ' + esc(s.mother) : ''}</div>` : ''}${stuExtra(s)}</td><td>${esc(s.level)}</td><td>${fmtBE(s.gradDate)}</td><td>${esc(s.gpa || '-')}</td><td>${s.pp1Set || s.pp1No ? `${esc(s.pp1Set || '-')} / ${esc(s.pp1No || '-')}` : '<span class="muted">—</span>'}</td><td>${o > 0 ? `<span class="badge danger">฿${money(o)}</span>` : '<span class="muted">—</span>'}</td>
   <td><button type="button" class="btn btn-outline sm" data-act="delstu" data-id="${s.id}">ลบ</button></td></tr>`; }).join('') || `<tr><td colspan="9" class="muted">ไม่พบข้อมูล</td></tr>`}
@@ -1232,7 +1242,7 @@ function vGrads() {
     <details class="csv-paste" style="margin-top:12px"><summary class="small">หรือวางข้อความ CSV แทนไฟล์</summary><div class="stack" style="margin-top:8px"><textarea id="gd-csvtext" rows="3" placeholder="รหัสประจำตัว,ชื่อ-สกุล,ระดับชั้นที่จบ,วันที่จบ&#10;10301,นางสาวตัวอย่าง ใจดี,ม.6,31/03/2569"></textarea><div><button type="button" class="btn btn-blue sm" data-act="csvimp">นำเข้าข้อความ CSV</button></div></div></details>
     <div id="db-msg" style="margin-top:10px">${U.dbMsg || U.stuMsg || U.lastImport || ''}</div></div>
   </details>
-  <div class="card"><div class="between wrap"><h2 style="margin:0">รายชื่อผู้สำเร็จการศึกษา</h2><div class="row"><input id="gd-q" data-in="gdq" value="${esc(U.gq)}" placeholder="ค้นหา รหัส / เลขบัตร / ชื่อ / ระดับ / วันที่จบ / GPA / ปพ.1 / ค้างชำระ" style="width:340px"><select id="gd-flevel" data-ch="gdlevel" aria-label="กรองระดับชั้น" style="width:auto">${lv.map(o => `<option value="${o}" ${U.glevel === o ? 'selected' : ''}>${o || 'ทุกระดับ'}</option>`).join('')}</select><button type="button" class="btn btn-outline sm" data-act="toggleadd">${U.showAdd ? 'ปิดฟอร์ม' : '+ เพิ่มรายบุคคล'}</button></div></div>
+  <div class="card"><div class="between wrap"><h2 style="margin:0">รายชื่อผู้สำเร็จการศึกษา</h2><div class="row"><input id="gd-q" data-in="gdq" value="${esc(U.gq)}" placeholder="ค้นหา รหัส / เลขบัตร / ชื่อ / ระดับ / วันที่จบ / GPA / ปพ.1 / ค้างชำระ" style="width:340px"><select id="gd-fyear" data-ch="gdyear" aria-label="กรองปีที่จบ" style="width:auto">${yearOptions()}</select><select id="gd-flevel" data-ch="gdlevel" aria-label="กรองระดับชั้น" style="width:auto">${lv.map(o => `<option value="${o}" ${U.glevel === o ? 'selected' : ''}>${o || 'ทุกระดับ'}</option>`).join('')}</select><button type="button" class="btn btn-outline sm" data-act="toggleadd">${U.showAdd ? 'ปิดฟอร์ม' : '+ เพิ่มรายบุคคล'}</button></div></div>
   <form class="addform" data-form="addstu" ${U.showAdd ? '' : 'hidden'} novalidate>
     <div><label for="as-sid">รหัสประจำตัว</label><input id="as-sid" required></div>
     <div><label for="as-cid">เลขบัตรประชาชน</label><input id="as-cid" inputmode="numeric"></div>
@@ -3945,6 +3955,7 @@ const CH = {
   },
   note: el => { const r = getReq(el.dataset.r); r.persons[+el.dataset.i].note = el.value.trim(); save(); },
   gdlevel: el => { U.glevel = el.value; $('#gd-table').innerHTML = gradsTable(); },
+  gdyear: el => { U.gyear = el.value; $('#gd-table').innerHTML = gradsTable(); },
   feonly: el => { U.fOnly = el.checked; $('#fe-table').innerHTML = feesTable(); },
   pp3file: el => { const f = el.files[0]; const m = f && f.name.match(/PP3-\d{4}-(\d)/i); if (m && (m[1] === '3' || m[1] === '6')) $('#gd-level').value = 'ม.' + m[1]; },
   csvfile: () => {}
