@@ -1,6 +1,6 @@
 /* WNM-Educational Measurement and Evaluation Section Ver.1 — ระบบรับ–ส่งและตรวจสอบวุฒิการศึกษา (Prototype, เก็บข้อมูลในเบราว์เซอร์) */
 /* รุ่นของระบบ — release.py ปรับให้อัตโนมัติทุกครั้งที่ปรับปรุง ห้ามแก้ด้วยมือ */
-const APP_VERSION = { no: 'Ver.36', at: '24/11/2569 17:57' };
+const APP_VERSION = { no: 'Ver.37', at: '25/11/2569 13:08' };
 'use strict';
 
 /* ---------- ค่าคงที่ ---------- */
@@ -2306,6 +2306,13 @@ function summaryText(r) {
   const c = k => r.persons.filter(p => p.result === k).length;
   return `สำเร็จการศึกษาจริง ${c('found')} ราย / ข้อมูลไม่ตรงกับหลักฐานของโรงเรียน ${c('mismatch')} ราย / ไม่พบหลักฐานการสำเร็จการศึกษา ${c('notfound')} ราย`;
 }
+/* สรุปผลในอีเมล: แยกบรรทัดละผล */
+function summaryLines(r) {
+  const c = k => r.persons.filter(p => p.result === k).length;
+  return `สรุปผล: สำเร็จการศึกษาจริง ${c('found')} ราย\nข้อมูลไม่ตรงกับหลักฐานของโรงเรียน ${c('mismatch')} ราย\nไม่พบหลักฐานการสำเร็จการศึกษา ${c('notfound')} ราย`;
+}
+/* เลขที่หนังสือของหน่วยงาน พร้อมชั้นความเร็ว เช่น อว 0652.17/540 (ด่วนที่สุด) */
+const refDocText = r => { const d = String(r.docNo || '').trim(), u = r.urgent || ''; return u && !d.includes(u) ? `${d} (${u})` : d; };
 function defaultMail(r) {
   const st = S.settings, no = r.outNo ? st.docPrefix + r.outNo : '(ออกเลขเมื่อส่ง)';
   return {
@@ -2313,11 +2320,9 @@ function defaultMail(r) {
     subject: `แจ้งผลการตรวจสอบวุฒิการศึกษา – ${st.school} ที่ ${no}`,
     body: `เรียน ${toLine(r)}
 
-${st.school} ขอส่งหนังสือแจ้งผลการตรวจสอบวุฒิการศึกษา ที่ ${no} ลงวันที่ ${letterDateText(r).trim()} ตอบหนังสือของท่านที่ ${r.docNo} ลงวันที่ ${fmtLong(r.docDate)} รายละเอียดตามไฟล์แนบ
+${st.school} ขอส่งหนังสือแจ้งผลการตรวจสอบวุฒิการศึกษา ที่ ${no} ลงวันที่ ${letterDateText(r).trim()} ตอบหนังสือของท่านที่ ${refDocText(r)} ลงวันที่ ${fmtLong(r.docDate)} รายละเอียดตามไฟล์แนบ
 
-สรุปผล: ${summaryText(r)}
-
-ท่านตรวจสอบสถานะหนังสือได้ที่หน้าตรวจสอบสถานะของโรงเรียน โดยใช้เลขที่หนังสือ ${r.docNo} และอีเมลนี้
+${summaryLines(r)}
 
 จึงเรียนมาเพื่อโปรดทราบ
 
