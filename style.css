@@ -821,3 +821,7 @@ input[type=radio],input[type=checkbox]{accent-color:var(--primary)}
 .nav button.on .nav-n{background:var(--primary);border-color:var(--primary);color:var(--primary-ink)}
 /* เลือกระดับชั้นที่จบในแถวตรวจสอบ */
 .lv-sel{width:auto;display:inline-block;padding:1px 22px 1px 6px;font-size:12.5px;border-radius:var(--r-sm);vertical-align:baseline;background-position:right 4px center}
+/* คนเดียวกันมีหลายระเบียน (ม.3/ม.6): ให้เลือกวุฒิที่จะตอบ */
+.rec-ch{display:grid;gap:4px;justify-items:start;margin-top:6px}
+.rec-ch .chip{border-style:solid;border-radius:8px;background:var(--surface);color:var(--text);border-color:var(--line);white-space:nowrap;text-align:left}
+.rec-ch .chip.on{background:var(--gold-soft);border-color:var(--gold);color:var(--navy);font-weight:600}

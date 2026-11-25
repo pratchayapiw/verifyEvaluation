@@ -1,6 +1,6 @@
 /* WNM-Educational Measurement and Evaluation Section Ver.1 — ระบบรับ–ส่งและตรวจสอบวุฒิการศึกษา (Prototype, เก็บข้อมูลในเบราว์เซอร์) */
 /* รุ่นของระบบ — release.py ปรับให้อัตโนมัติทุกครั้งที่ปรับปรุง ห้ามแก้ด้วยมือ */
-const APP_VERSION = { no: 'Ver.37', at: '25/11/2569 13:08' };
+const APP_VERSION = { no: 'Ver.38', at: '25/11/2569 13:28' };
 'use strict';
 
 /* ---------- ค่าคงที่ ---------- */
@@ -497,14 +497,19 @@ function addTL(r, text, pub) { r.timeline.push({ t: Date.now(), text, pub: !!pub
 
 /* ---------- การจับคู่กับฐานข้อมูล ---------- */
 function matchPerson(p, students = S.students) {
-  const cid = digits(p.cid);
+  const cid = digits(p.cid), py = gradYearBE(p);
   let best = null, bestScore = 0;
   for (const s of students) {
     const bySid = !!(sidKey(p.sid) && sidKey(p.sid) === sidKey(s.sid));
     const byCid = !!(cid && cid === s.cid);
     const byName = !!(p.fname && normName(p.fname) === normName(s.fname) && normName(p.lname) === normName(s.lname));
     let sc = (bySid ? 2 : 0) + (byCid ? 3 : 0) + (byName ? 2 : 0);
-    if (sc) { if (p.level && s.level && normLevel(p.level) === s.level) sc += 0.6; if (p.gradDate && p.gradDate === s.gradDate) sc += 0.3; }
+    if (sc) {
+      if (p.level && s.level && normLevel(p.level) === s.level) sc += 0.6;
+      if (p.gradDate && p.gradDate === s.gradDate) sc += 0.3;
+      else if (!p.gradDate && py && s.gradDate && +s.gradDate.slice(0, 4) + 543 === py) sc += 0.25;
+      sc += levelRank(s.level) * 0.05 + (s.gradDate ? +s.gradDate.slice(0, 4) / 1e6 : 0);
+    }
     if (sc > bestScore) { best = { s, bySid, byCid, byName }; bestScore = sc; }
   }
   if (!best) {
@@ -520,6 +525,13 @@ function matchPerson(p, students = S.students) {
   return issues.length
     ? { result: 'mismatch', matchedId: best.s.id, auto: issues.join(' · ') }
     : { result: 'found', matchedId: best.s.id, auto: 'ข้อมูลตรงกับฐานข้อมูล' };
+}
+function levelRank(lv) { return lv === 'ม.6' ? 2 : lv === 'ม.3' ? 1 : 0; }
+function sameRecords(p, base) {
+  const ref = base || getStu(p.matchedId); if (!ref) return [];
+  const cid = ref.cid || digits(p.cid), sk = sidKey(ref.sid), fn = normName(ref.fname), ln = normName(ref.lname);
+  return S.students.filter(s => (cid && s.cid === cid ? 3 : 0) + (sk && sidKey(s.sid) === sk ? 2 : 0) + (normName(s.fname) === fn && normName(s.lname) === ln ? 2 : 0) >= 2)
+    .sort((a, b) => levelRank(b.level) - levelRank(a.level) || String(b.gradDate || '').localeCompare(String(a.gradDate || '')));
 }
 /* ระเบียนในฐานข้อมูลของคนเดียวกันในระดับชั้นที่เลือก (คนที่จบทั้ง ม.3 และ ม.6 มี 2 ระเบียน: ชุด/เลขที่ ปพ.1 และเกรดเฉลี่ยต่างกัน) */
 function stuAtLevel(p, level, base) {
@@ -1110,7 +1122,7 @@ function verifyPanel(r) {
   ${r.persons.map((p, i) => {
     const s = getStu(p.matchedId), o = s ? outstanding(s.id) : 0;
     return `<tr><td>${i + 1}</td>
-    <td><b>${esc(pName(p))}</b><div class="sub">เลขประจำตัว ${esc(p.sid || '-')} · จบ ${p.gradDate ? fmtBE(p.gradDate) : esc(p.gradText || '-')} · ${r.status === 'replied' ? esc(p.level || '-') : `<select class="lv-sel" id="plv-${p.id}" aria-label="ระดับชั้นที่จบ ${esc(p.fname)}" data-ch="plevel" data-r="${r.id}" data-i="${i}"><option value="">ระดับ —</option>${['ม.3', 'ม.6'].map(o => `<option ${normLevel(p.level || '') === o ? 'selected' : ''}>${o}</option>`).join('')}</select>`}</div>${levelHint(p)}${priorHTML(p, r)}</td>
+    <td><b>${esc(pName(p))}</b><div class="sub">เลขประจำตัว ${esc(p.sid || '-')} · จบ ${p.gradDate ? fmtBE(p.gradDate) : esc(p.gradText || '-')} · ${r.status === 'replied' ? esc(p.level || '-') : `<select class="lv-sel" id="plv-${p.id}" aria-label="ระดับชั้นที่จบ ${esc(p.fname)}" data-ch="plevel" data-r="${r.id}" data-i="${i}"><option value="">ระดับ —</option>${(() => { const cur = normLevel(p.level || '') || ((getStu(p.matchedId) || {}).level || ''); return ['ม.3', 'ม.6'].map(o => `<option ${cur === o ? 'selected' : ''}>${o}</option>`).join(''); })()}</select>`}</div>${levelHint(p, r, i)}${priorHTML(p, r)}</td>
     <td>${s ? `<b>${esc(fullName(s))}</b><div class="sub">รหัส ${esc(s.sid)} · ${esc(s.level)} · จบ ${fmtBE(s.gradDate)}</div>${pp1Cell(s, r.status === 'replied')}${pp1Mini(s, r)}${stuExtra(s)}${missingData(p, r).length && r.status !== 'replied' ? `<div class="small" style="color:var(--danger-fg);font-weight:700">⚠️ ขาด ${missingData(p, r).join(', ')}</div>` : ''}` : '<span class="muted">—</span>'}${p.auto ? `<div class="small auto">${esc(p.auto)}</div>` : ''}${suggestHTML(p, r, i)}${manualBtn(r, p, i)}</td>
     <td class="num">${s && s.gpa ? `<b>${esc(s.gpa)}</b>` : '<span class="muted">—</span>'}</td>
     <td>${s ? (o > 0 ? `<span class="badge danger">฿${money(o)}</span>` : '<span class="badge ok">ไม่มี</span>') : '<span class="muted">—</span>'}</td>
@@ -3147,10 +3159,11 @@ const MANUAL_EXT = 'แหล่งข้อมูลภายนอก (ค้�
 const MANUAL_EVIDENCE = [MANUAL_EXT, 'ปพ.3 (แบบรายงานผู้สำเร็จการศึกษา) ต้นฉบับ', 'สมุดทะเบียนนักเรียน', 'ปพ.1 ฉบับสำเนาคู่ฉบับ', 'แฟ้มประวัตินักเรียน', 'ระบบสารสนเทศของโรงเรียน'];
 const manualOpenFor = (r, i) => U.manual && U.manual.r === r.id && U.manual.i === i;
 /* คนเดียวกันมีระเบียนอีกระดับชั้นในฐานข้อมูล: บอกให้รู้ว่าเลือกระดับอื่นได้ */
-function levelHint(p) {
-  const s = getStu(p.matchedId); if (!s || p.manual) return '';
-  const other = stuAtLevel(p, s.level === 'ม.3' ? 'ม.6' : 'ม.3', s);
-  return other ? `<div class="small muted">มีข้อมูลระดับ ${other.level} ด้วย (จบ ${fmtBE(other.gradDate)}${other.gpa ? ' · เกรดเฉลี่ย ' + esc(other.gpa) : ''}) · เปลี่ยนระดับชั้นที่จบได้</div>` : '';
+function levelHint(p, r, i) {
+  if (p.manual) return '';
+  const list = sameRecords(p); if (list.length < 2) return '';
+  const lock = r && r.status === 'replied';
+  return `<div class="rec-ch"><span class="small muted">พบ ${list.length} ระเบียน${lock ? '' : ' · เลือกวุฒิที่จะตอบ'}</span>${list.map(s => { const on = s.id === p.matchedId, t = `<b>${esc(s.level || '-')}</b> จบ ${fmtBE(s.gradDate)} · เกรด ${esc(s.gpa || '-')}`; return lock ? `<span class="chip ${on ? 'on' : ''}">${t}${on ? ' ✓' : ''}</span>` : `<button type="button" class="chip ${on ? 'on' : ''}" title="${pp1Text(s) || 'ยังไม่มีเลข ปพ.1'}" data-act="pickrec" data-r="${r.id}" data-i="${i}" data-s="${s.id}" aria-pressed="${on}">${on ? '✓ ' : ''}${t}</button>`; }).join('')}</div>`;
 }
 function manualBtn(r, p, i) {
   if (r.status === 'replied' || manualOpenFor(r, i)) return '';
@@ -3570,6 +3583,13 @@ const ACT = {
     U.rtSelf = null; save(); render(); toast(`บันทึกเลขทะเบียนรับ ${reg} แล้ว${routed ? ' · ส่งกลับงานวัดผลแล้ว' : ''}`);
     if (mailTo) notifyMail(mailTo, `[ลงรับแล้ว] หนังสือขอตรวจสอบวุฒิ เลขรับ ${reg} · ${r.agency}`,
       `งานธุรการลงทะเบียนรับหนังสือแล้ว\nเลขรับ: ${reg}\nวันที่รับ: ${fmtLong(dt)}${r.recvTime ? ' เวลา ' + r.recvTime + ' น.' : ''}\nหน่วยงาน: ${r.agency}\nหนังสือที่: ${r.docNo || '-'}\n\nเมื่อรองผู้อำนวยการและผู้อำนวยการทราบแล้ว กด "รับหนังสือคืน" และดำเนินการตรวจสอบต่อได้ที่: ${sysLink()}`);
+  },
+  pickrec: b => {
+    const r = getReq(b.dataset.r), p = r && r.persons[+b.dataset.i], s = getStu(b.dataset.s); if (!p || !s) return;
+    p.level = s.level; const c = compareWith(p, s);
+    Object.assign(p, { matchedId: s.id, result: c.result, auto: c.auto, confirmed: false });
+    addTL(r, `เลือกข้อมูล ${s.level} (จบ ${fmtBE(s.gradDate)}) ของ ${pName(p)} จากฐานข้อมูล`);
+    refreshStatus(r); save(); render(); toast(`ใช้ข้อมูล ${s.level}: เกรดเฉลี่ย ${s.gpa || '-'} · ${pp1Text(s) || 'ยังไม่มีเลข ปพ.1'} · ตรวจแล้วกดยืนยันผล`);
   },
   rtsend: b => routeSend(getReq(b.dataset.id), !!b.dataset.again),
   rtack: b => routeAck(getReq(b.dataset.id)),
